@@ -27,7 +27,6 @@ except AttributeError:
     pass
 else: 
     ssl._create_default_https_context = _create_unverified_https_context
-
 # --- КОНФИГУРАЦИЯ ---
 FIREBASE_WEB_API_KEY = "AIzaSyAQzzGsmH4o3ZgFFZM017kw9zG0HRe7ZBg"
 KEY = b'uX7Y8Z9a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8=' 
@@ -35,11 +34,20 @@ cipher = Fernet(KEY)
 CRED_PATH = "serviceAccountKey.json"
 DB_URL = "https://xrl-chat-default-rtdb.europe-west1.firebasedatabase.app/"
 
-try:
-    cred = credentials.Certificate(CRED_PATH)
-    firebase_admin.initialize_app(cred, {'databaseURL': DB_URL})
-except Exception as e:
-    logging.error(f"Ошибка инициализации Firebase: {e}")
+# Инициализация, которая не падает без файла
+if not firebase_admin._apps:
+    try:
+        if os.path.exists(CRED_PATH):
+            cred = credentials.Certificate(CRED_PATH)
+            firebase_admin.initialize_app(cred, {'databaseURL': DB_URL})
+        else:
+            # Используем Anonymous-заглушку, чтобы библиотека инициализировалась.
+            # Защита "auth != null" на стороне Firebase проверит токен,
+            # который получает функция authenticate_anonymously() при старте.
+            cred = credentials.Anonymous()
+            firebase_admin.initialize_app(cred, {'databaseURL': DB_URL})
+    except Exception as e:
+        logging.error(f"Ошибка инициализации Firebase: {e}")
 
 class XRLChat:
     def __init__(self):
