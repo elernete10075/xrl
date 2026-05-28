@@ -223,7 +223,6 @@ class XRLChat:
 
             if ch in [10, 13, '\n', '\r']:
                 break
-            # ДОБАВЛЕН КОД 263 ДЛЯ UBUNTU BACKSPACE
             elif ch in [8, 127, 263, '\b', '\x7f', curses.KEY_BACKSPACE, 'KEY_BACKSPACE']:
                 input_str = input_str[:-1]
             elif isinstance(ch, str):
@@ -294,7 +293,6 @@ class XRLChat:
                         logging.error(f"Ошибка отправки сообщения: {e}")
                     user_input = ""
             
-            # ДОБАВЛЕН КОД 263 ДЛЯ UBUNTU BACKSPACE
             elif key in [8, 127, 263, '\b', '\x7f', curses.KEY_BACKSPACE, 'KEY_BACKSPACE']: 
                 user_input = user_input[:-1]
                 
