@@ -443,9 +443,8 @@ class XRLChat:
             stdscr.erase()
             self.draw_small_header(stdscr)
             stdscr.addstr(8, 4, "--- XRL-CHAT PROJECT ---", curses.color_pair(15) | curses.A_BOLD)
-            stdscr.addstr(10, 6, "Main Developer: xrl-def", curses.color_pair(1))
-            stdscr.addstr(11, 6, "AI Assistant  : Gemini AI", curses.color_pair(1))
-            stdscr.addstr(13, 6, "Version       : 1.0.4 (Stable)", curses.color_pair(1))
+            stdscr.addstr(10, 6, "Developer: xrl-def", curses.color_pair(1))
+            stdscr.addstr(13, 6, "Version       : 1.1.2 ", curses.color_pair(1))
             stdscr.addstr(16, 4, "Press any key to return...", curses.A_REVERSE)
             stdscr.refresh()
             try:
@@ -467,11 +466,11 @@ class XRLChat:
         
         stdscr.erase()
         self.draw_big_logo(stdscr)
-        stdscr.addstr(10, 4, " Подключение к защищенной сети Firebase Auth... ", curses.A_REVERSE)
+        stdscr.addstr(10, 4, " Connecting To Firebase Auth... ", curses.A_REVERSE)
         stdscr.refresh()
         
         if not self.authenticate_anonymously():
-            stdscr.addstr(12, 4, " ОШИБКА АВТОРИЗАЦИИ! Проверь Web API Key или сеть. ", curses.color_pair(1))
+            stdscr.addstr(12, 4, "Erron Check Web API Key или сеть. ", curses.color_pair(1))
             stdscr.refresh()
             time.sleep(3)
             return
