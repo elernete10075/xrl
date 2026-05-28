@@ -3,12 +3,11 @@ import sys
 import time
 import subprocess
 
-# Ссылка на твой чистый код чата на GitHub (замени на свою ссылку!)
-GITHUB_RAW_CHAT_URL = "https://github.com/elernete10075/xrl/tree/main/chat.py"
+# Точная прямая ссылка на твой чат
+GITHUB_RAW_CHAT_URL = "https://raw.githubusercontent.com/elernete10075/xrl/main/chat.py"
 CHAT_FILE = "chat.py"
 
 def print_progress(stage_name, percent):
-    """Рисует красивый лоадер в терминале"""
     os.system('clear' if os.name != 'nt' else 'cls')
     print("loading xrl-chat")
     print(f"    {stage_name} ...")
@@ -20,15 +19,11 @@ def print_progress(stage_name, percent):
     print(f"[{bar}] {percent}%")
 
 def check_libs():
-    """Тихая проверка и установка библиотек без мусора в консоли"""
     required_libs = ["firebase-admin", "cryptography", "requests"]
-    
     for i, lib in enumerate(required_libs):
-        percent = int(10 + (i / len(required_libs)) * 40)  # Стадии от 10% до 50%
+        percent = int(10 + (i / len(required_libs)) * 40)
         print_progress(f"checking {lib}", percent)
-        time.sleep(0.3)
-        
-        # Запуск pip install в "тихом" режиме (stdout в никуда)
+        time.sleep(0.2)
         subprocess.check_call(
             [sys.executable, "-m", "pip", "install", lib, "--quiet"],
             stdout=subprocess.DEVNULL,
@@ -36,10 +31,8 @@ def check_libs():
         )
 
 def update_chat_code():
-    """Скачивает последнюю версию чата с гитхаба"""
     print_progress("checking for updates", 70)
-    time.sleep(0.5)
-    
+    time.sleep(0.3)
     try:
         import requests
         print_progress("downloading latest updates", 85)
@@ -48,23 +41,17 @@ def update_chat_code():
             with open(CHAT_FILE, "w", encoding="utf-8") as f:
                 f.write(response.text)
             print_progress("done", 100)
-            time.sleep(0.5)
+            time.sleep(0.4)
         else:
-            # Если гитхаб не ответил, но локальный файл есть — просто запускаем
             if not os.path.exists(CHAT_FILE):
-                print("\n[Error] Не удалось скачать чат с GitHub!")
+                print("\n[Error] Не удалось получить чат с GitHub (Status 404)!")
                 sys.exit(1)
     except Exception:
         if not os.path.exists(CHAT_FILE):
-            print("\n[Error] Нет подключения к сети для первой загрузки!")
+            print("\n[Error] Нет подключения к сети!")
             sys.exit(1)
 
 if __name__ == "__main__":
-    # 1. Устанавливаем зависимости (10% - 50%)
     check_libs()
-    
-    # 2. Обновляем/качаем сам чат (50% - 100%)
     update_chat_code()
-    
-    # 3. Запуск основного чата
     os.system(f"{sys.executable} {CHAT_FILE}")
