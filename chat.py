@@ -27,6 +27,7 @@ except AttributeError:
     pass
 else: 
     ssl._create_default_https_context = _create_unverified_https_context
+
 # --- КОНФИГУРАЦИЯ ---
 FIREBASE_WEB_API_KEY = "AIzaSyAQzzGsmH4o3ZgFFZM017kw9zG0HRe7ZBg"
 KEY = b'uX7Y8Z9a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8=' 
@@ -34,16 +35,15 @@ cipher = Fernet(KEY)
 CRED_PATH = "serviceAccountKey.json"
 DB_URL = "https://xrl-chat-default-rtdb.europe-west1.firebasedatabase.app/"
 
-# Инициализация, которая не падает без файла
+# Железобетонная инициализация, которая не упадет без файла ключа
 if not firebase_admin._apps:
     try:
         if os.path.exists(CRED_PATH):
             cred = credentials.Certificate(CRED_PATH)
             firebase_admin.initialize_app(cred, {'databaseURL': DB_URL})
         else:
-            # Используем Anonymous-заглушку, чтобы библиотека инициализировалась.
-            # Защита "auth != null" на стороне Firebase проверит токен,
-            # который получает функция authenticate_anonymously() при старте.
+            # Если файла нет, скармливаем Anonymous-права, чтобы SDK запустился.
+            # Защита базы проверит токен от authenticate_anonymously()
             cred = credentials.Anonymous()
             firebase_admin.initialize_app(cred, {'databaseURL': DB_URL})
     except Exception as e:
@@ -198,11 +198,11 @@ class XRLChat:
 
     def draw_big_logo(self, stdscr):
         logo = [
-            r"____  ___       .__      _________ .__            __   ",
-            r"\   \/  /______ |  |     \_   ___ \|  |__ _____ _/  |_ ",
-            r" \      /\_  __ \  |     /    \  \/|  |  \\__  \\  __\\",
-            r" /      \ |  | \/  |__   \     \___|   Y  \/ __ \|  |  ",
-            r"/___/\  \ |__|  |____/    \______  /___|  (____  /__|  ",
+            r"____  ___         .__       _________ .__            __   ",
+            r"\   \/  /______ |  |      \_   ___ \|  |__ _____ _/  |_ ",
+            r" \     /\_  __ \  |      /    \  \/|  |  \\__  \\  __\\",
+            r" /     \ |  | \/  |__    \     \___|  Y  \/ __ \|  |  ",
+            r"/___/\  \|__|  |____/     \______  /___|  (____  /__|  ",
             r"      \_/                        \/     \/      \/      "
         ]
         for i, line in enumerate(logo):
@@ -451,8 +451,9 @@ class XRLChat:
             stdscr.erase()
             self.draw_small_header(stdscr)
             stdscr.addstr(8, 4, "--- XRL-CHAT PROJECT ---", curses.color_pair(15) | curses.A_BOLD)
-            stdscr.addstr(10, 6, "Developer: xrl-def", curses.color_pair(1))
-            stdscr.addstr(13, 6, "Version       : 1.1.2 ", curses.color_pair(1))
+            stdscr.addstr(10, 6, "Main Developer: xrl-def", curses.color_pair(1))
+            stdscr.addstr(11, 6, "AI Assistant  : Gemini AI", curses.color_pair(1))
+            stdscr.addstr(13, 6, "Version       : 1.0.4 (Stable)", curses.color_pair(1))
             stdscr.addstr(16, 4, "Press any key to return...", curses.A_REVERSE)
             stdscr.refresh()
             try:
@@ -474,11 +475,11 @@ class XRLChat:
         
         stdscr.erase()
         self.draw_big_logo(stdscr)
-        stdscr.addstr(10, 4, " Connecting To Firebase Auth... ", curses.A_REVERSE)
+        stdscr.addstr(10, 4, " Подключение к защищенной сети Firebase Auth... ", curses.A_REVERSE)
         stdscr.refresh()
         
         if not self.authenticate_anonymously():
-            stdscr.addstr(12, 4, "Erron Check Web API Key или сеть. ", curses.color_pair(1))
+            stdscr.addstr(12, 4, " ОШИБКА АВТОРИЗАЦИИ! Проверь Web API Key или сеть. ", curses.color_pair(1))
             stdscr.refresh()
             time.sleep(3)
             return
