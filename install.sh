@@ -1,14 +1,18 @@
 #!/bin/bash
 
+# Очищаем экран
 clear
 echo "======================================"
 echo "    Installing XRL-CHAT Bootstrapper  "
 echo "======================================"
 echo ""
 
+# Принудительно удаляем старый сломанный лаунчер, если он остался
+rm -f "$HOME/launcher.py"
+
 echo "[1/3] Downloading launcher.py..."
-# Качаем строго из RAW гитхаба
-curl -sSL "https://raw.githubusercontent.com/elernete10075/xrl/main/launcher.py" -o "$HOME/launcher.py"
+# Скачиваем по твоей точной ссылке
+curl -sSL "https://raw.githubusercontent.com/elernete10075/xrl/refs/heads/main/launcher.py" -o "$HOME/launcher.py"
 
 echo "[2/3] Configuring short command 'start-xrl'..."
 SHELL_RC="$HOME/.bashrc"
@@ -29,4 +33,5 @@ echo "--------------------------------------"
 echo "Starting the chat for the first time..."
 echo ""
 
+# Запускаем свежескачанный лаунчер
 python3 "$HOME/launcher.py"
