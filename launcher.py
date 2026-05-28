@@ -15,15 +15,12 @@ def print_progress(stage_name, percent):
 
 def check_libs():
     required_libs = ["firebase-admin", "cryptography", "requests"]
-    
-    # Импортируем pip прямо внутри Python, чтобы не плодить дочерние процессы
     try:
         from pip._internal import main as pipmain
-    except reimport_error:
+    except ImportError:
         try:
             from pip import main as pipmain
         except Exception:
-            # Если pip совсем заблокирован, откатываемся на консоль с флагом игнора
             import subprocess
             for i, lib in enumerate(required_libs):
                 percent = int(10 + (i / len(required_libs)) * 40)
@@ -35,9 +32,7 @@ def check_libs():
         percent = int(10 + (i / len(required_libs)) * 40)
         print_progress(f"checking {lib}", percent)
         time.sleep(0.1)
-        
         try:
-            # Встроенный запуск установки с подавлением системных ограничений
             pipmain(['install', lib, '--quiet', '--break-system-packages'])
         except Exception:
             pass
@@ -70,7 +65,7 @@ if __name__ == "__main__":
     check_libs()
     update_chat_code()
     
-    # Запуск чата
+    # Запуск чата строго из текущей папки приложения
     if os.path.exists("chat.py"):
         os.system(f"{sys.executable} chat.py")
     else:
