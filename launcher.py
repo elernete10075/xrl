@@ -24,8 +24,10 @@ def check_libs():
         percent = int(10 + (i / len(required_libs)) * 40)
         print_progress(f"checking {lib}", percent)
         time.sleep(0.2)
+        
+        # Добавлен флаг --break-system-packages для обхода защиты Ubuntu
         subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", lib, "--quiet"],
+            [sys.executable, "-m", "pip", "install", lib, "--quiet", "--break-system-packages"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
