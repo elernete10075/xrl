@@ -177,7 +177,7 @@ class XRLChat:
         match = re.search(r"\(.*?\)\s\((.*?)\)\s\((.*?)\)\s>(.*)<", dec)
         if match:
             ses, name, txt = match.groups()
-            m = f"[{name} ({ses})]: {txt}"
+            m = f"[{name}]: {txt}"
             if m not in self.messages_history: 
                 self.messages_history.append(m)
                 if save:
