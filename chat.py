@@ -453,7 +453,7 @@ def open_settings(self, stdscr):
                     break
             elif k in ['b', 'B']: 
                 break
-def open_credits(self, stdscr):
+    def open_credits(self, stdscr):
         while True:
             stdscr.bkgd(' ', curses.color_pair(1))
             stdscr.erase()
