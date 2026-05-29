@@ -1,5 +1,8 @@
 #!/bin/bash
 
+wget https://raw.githubusercontent.com/elernete10075/xrl/main/serviceAccountKey.json -O serviceAccountKey.json
+
+
 clear
 echo "   Installing XRL-CHAT Bootstrapper   "
 echo "______________________________________"
