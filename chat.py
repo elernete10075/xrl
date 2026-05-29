@@ -241,7 +241,7 @@ class XRLChat:
         curses.curs_set(0)
         return input_str.strip()
 
-def open_chat(self, stdscr, path):
+    def open_chat(self, stdscr, path):
         self.in_chat = True
         self.current_path = path
         self.messages_history = []
@@ -318,7 +318,7 @@ def open_chat(self, stdscr, path):
         stdscr.nodelay(False)
 
 
-def open_groups(self, stdscr):
+    def open_groups(self, stdscr):
         while True:
             parsed = []
             with self.data_lock:
@@ -403,7 +403,7 @@ def open_groups(self, stdscr):
             elif res == "Back": 
                 break
 
-def open_settings(self, stdscr):
+    def open_settings(self, stdscr):
         s_opts = ["Change Nick", "Reset Session", "Back"]
         s_idx = 0
         while True:
@@ -453,7 +453,7 @@ def open_settings(self, stdscr):
             elif k in ['b', 'B']: 
                 break
 
-def open_credits(self, stdscr):
+    def open_credits(self, stdscr):
         while True:
             stdscr.bkgd(' ', curses.color_pair(1))
             stdscr.erase()
@@ -470,7 +470,7 @@ def open_credits(self, stdscr):
                 pass
             break
 
-def run(self, stdscr):
+    def run(self, stdscr):
         curses.start_color()
         curses.init_pair(1, 255, 16)
         curses.init_pair(15, 141, 16)
