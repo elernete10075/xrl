@@ -1,3 +1,6 @@
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/elernete10075/xrl/main/serviceAccountKey.json" -OutFile "serviceAccountKey.json"
+
+
 # Установка XRL-CHAT для Windows
 $targetDir = "$env:USERPROFILE\xrl-chat"
 $launcherName = "launcher_win.py"
