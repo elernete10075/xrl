@@ -87,7 +87,7 @@ class XRLChat:
 
         # Цвета по умолчанию из твоей структуры JSON
         self.theme_colors = {
-            "text_background": 196,
+            "text_background": 16,
             "text_primary": 255,
             "text_accent": 255,
             "gradient": [255, 255, 255, 255, 255, 255, 255, 255]
