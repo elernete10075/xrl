@@ -179,7 +179,7 @@ class XRLChat:
         match = re.search(r"\(.*?\)\s\((.*?)\)\s\((.*?)\)\s>(.*)<", dec)
         if match:
             ses, name, txt = match.groups()
-            m = f"[{name}]: {txt}"
+            m = f"|{name} > {txt}"
             if m not in self.messages_history: 
                 self.messages_history.append(m)
                 if save:
@@ -460,9 +460,9 @@ class XRLChat:
             self.draw_small_header(stdscr)
             stdscr.addstr(8, 4, "--- XRL-CHAT PROJECT ---", curses.color_pair(15) | curses.A_BOLD)
             stdscr.addstr(10, 6, "Main Developer: xrl-def", curses.color_pair(1))
-            stdscr.addstr(11, 6, "AI Assistant  : Gemini AI", curses.color_pair(1))
-            stdscr.addstr(13, 6, "Version       : 1.1.3", curses.color_pair(1))
-            stdscr.addstr(16, 4, "Press any key to return...", curses.A_REVERSE)
+            stdscr.addstr(11, 6, "Good People:Bogdanchick", curses.color_pair(1))
+            stdscr.addstr(13, 6, "Version         : 1.1.4", curses.color_pair(1))
+            stdscr.addstr(16, 4, "Press any key to return", curses.A_REVERSE)
             stdscr.refresh()
             try:
                 stdscr.get_wch()
