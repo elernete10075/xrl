@@ -470,7 +470,7 @@ def open_credits(self, stdscr):
                 pass
             break
 
-    def run(self, stdscr):
+def run(self, stdscr):
         curses.start_color()
         curses.init_pair(1, 255, 16)
         curses.init_pair(15, 141, 16)
