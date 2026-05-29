@@ -32,7 +32,7 @@ else:
 FIREBASE_WEB_API_KEY = "AIzaSyAQzzGsmH4o3ZgFFZM017kw9zG0HRe7ZBg"
 KEY = b'uX7Y8Z9a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8=' 
 cipher = Fernet(KEY)
-CRED_PATH = "serviceAccountKey.json"
+CRED_PATH = "Server_1.json"
 DB_URL = "https://xrl-chat-default-rtdb.europe-west1.firebasedatabase.app/"
 
 # Железобетонная инициализация, которая не упадет без файла ключа
