@@ -132,7 +132,7 @@ class XRLChat:
                 "text_background": 196,
                 "text_primary": 255,
                 "text_accent": 255,
-                "gradient": [255, 255, 255, 255, 255, 255, 255, 255]
+                "gradient": [196, 160, 124, 88, 124, 160, 194, 160]
             },
             "ui": {
                 "header_text": " - E C H O - ",
