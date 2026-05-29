@@ -36,18 +36,20 @@ CRED_PATH = "serviceAccountKey.json"
 DB_URL = "https://xrl-chat-default-rtdb.europe-west1.firebasedatabase.app/"
 
 # Железобетонная инициализация, которая не упадет без файла ключа
+# Замените ваш блок инициализации на этот:
 if not firebase_admin._apps:
     try:
         if os.path.exists(CRED_PATH):
+            # Если есть файл - используем его как АДМИН
             cred = credentials.Certificate(CRED_PATH)
             firebase_admin.initialize_app(cred, {'databaseURL': DB_URL})
+            print("Инициализация через Service Account успешна.")
         else:
-            # Если файла нет, скармливаем Anonymous-права, чтобы SDK запустился.
-            # Защита базы проверит токен от authenticate_anonymously()
-            cred = credentials.Anonymous()
-            firebase_admin.initialize_app(cred, {'databaseURL': DB_URL})
+            # Если файла НЕТ - только тогда используем анонимный вход
+            firebase_admin.initialize_app(options={'databaseURL': DB_URL})
+            print("Анонимный режим.")
     except Exception as e:
-        logging.error(f"Ошибка инициализации Firebase: {e}")
+        logging.error(f"Ошибка инициализации: {e}")
 
 class XRLChat:
     def __init__(self):
