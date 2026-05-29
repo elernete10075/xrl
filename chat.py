@@ -317,6 +317,7 @@ def open_chat(self, stdscr, path):
         self.in_chat = False
         stdscr.nodelay(False)
 
+
 def open_groups(self, stdscr):
         while True:
             parsed = []
