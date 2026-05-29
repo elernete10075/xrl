@@ -10,10 +10,14 @@ import logging
 import requests
 import locale
 import json
+import sys
 
 from firebase_admin import credentials, db
-# ИСПРАВЛЕНО: Добавлен пропущенный импорт Fernet
 from cryptography.fernet import Fernet
+
+# Импортируем winsound только если мы на Windows
+if sys.platform == "win32":
+    import winsound
 
 try:
     locale.setlocale(locale.LC_ALL, '')
@@ -53,11 +57,17 @@ class XRLChat:
     def __init__(self):
         self.session = "Loading..."
         self.nick = "thoned"
+        self.sound_enabled = False # Настройка звука по умолчанию выключена
         self.running = True
         self.cache_file = "xrl_cache.txt"
         self.config_file = "xrl_config.txt"
         self.themes_dir = "themes"
         self.themes_config_file = "themes_config.txt"
+        self.account_file = "chat_ac.txt"
+        
+        # Данные аккаунта мессенджера
+        self.my_uid = None
+        self.my_pwd = None
         
         self.messages_history = []
         self.groups_raw = {} 
@@ -67,30 +77,30 @@ class XRLChat:
         self.in_chat = False
         self.data_lock = threading.Lock()
 
-        # Параметры интерфейса по умолчанию
+        # Настройки UI по умолчанию
         self.header_text = " - E C H O - "
         self.separator_char = "="
         self.msg_prefix = " {name} : "
         self.input_prefix = " > "
+        self.logo_gradient = True 
 
         self.default_logo = [
-            "░▒▓████████▓▒ ░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░  ",
-            "░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ ",
-            "░▒▓█▓▒░      ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ ",
-            "░▒▓██████▓▒░ ░▒▓█▓▒░      ░▒▓████████▓▒░▒▓█▓▒░░▒▓█▓▒░ ",
-            "░▒▓█▓▒░      ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ ",
-            "░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ ",
-            "░▒▓████████▓▒ ░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░  ",
+            "░▒▓████████▓▒ ░▒▓██████▓▒░ ▒▓█▓▒░░▒▓█▓▒  ▒▓██████▓▒░  ",
+            "░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒ ▒▓█▓▒░░▒▓█▓▒ ▒▓█▓▒░░▒▓█▓▒░ ",
+            "░▒▓█▓▒░      ░▒▓█▓▒░       ▒▓█▓▒░░▒▓█▓▒ ▒▓█▓▒░░▒▓█▓▒░ ",
+            "░▒▓██████▓▒░ ░▒▓█▓▒░       ▒▓████████▓▒ ▒▓█▓▒░░▒▓█▓▒░ ",
+            "░▒▓█▓▒░      ░▒▓█▓▒░       ▒▓█▓▒░░▒▓█▓▒ ▒▓█▓▒░░▒▓█▓▒░ ",
+            "░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒ ▒▓█▓▒░░▒▓█▓▒ ▒▓█▓▒░░▒▓█▓▒░ ",
+            "░▒▓████████▓▒ ░▒▓██████▓▒░ ▒▓█▓▒░░▒▓█▓▒  ▒▓██████▓▒░  ",
             "──────────────────────────────────────────────────────"
         ]
         self.current_logo = list(self.default_logo)
 
-        # Цвета по умолчанию из твоей структуры JSON
         self.theme_colors = {
-            "text_background": 16,
-            "text_primary": 255,
-            "text_accent": 255,
-            "gradient": [255, 255, 255, 255, 255, 255, 255, 255]
+            "text_background": {"color": 16, "gradient": False},
+            "text_primary": {"color": 255, "gradient": True},
+            "text_accent": {"color": 250, "gradient": False},
+            "gradient": [160, 196, 160, 196, 160, 160, 160, 160]
         }
 
         if not os.path.exists(self.cache_file): 
@@ -99,6 +109,7 @@ class XRLChat:
         self.load_settings()
         self.init_themes_system()
         self.load_msg_cache()
+        self.load_local_account()
 
     def encrypt(self, text): 
         return cipher.encrypt(text.encode('utf-8')).decode('utf-8')
@@ -109,36 +120,138 @@ class XRLChat:
         except Exception: 
             return None
 
+    def play_notification_sound(self):
+        """Воспроизведение готового системного звука без сторонних библиотек"""
+        if not self.sound_enabled:
+            return
+            
+        def async_sound():
+            try:
+                if sys.platform == "win32":
+                    # Стандартный чистый звук уведомления Windows
+                    winsound.MessageBeep(winsound.MB_ICONASTERISK)
+                else:
+                    # Попытка использовать aplay со встроенными системными звуками Ubuntu/Debian/Mint
+                    linux_sound_paths = [
+                        "/usr/share/sounds/sound-icons/glass.wav",
+                        "/usr/share/sounds/ubuntu/audio/message.ogg",
+                        "/usr/share/sounds/freedesktop/stereo/message.oga",
+                        "/usr/share/sounds/purple/receive.wav"
+                    ]
+                    played = False
+                    for path in linux_sound_paths:
+                        if os.path.exists(path):
+                            os.system(f"aplay -q {path} > /dev/null 2>&1 &")
+                            played = True
+                            break
+                    
+                    if not played:
+                        # Если звуковых файлов нет, используем стандартный системный писк терминала
+                        sys.stdout.write("\a")
+                        sys.stdout.flush()
+            except Exception as e:
+                logging.error(f"Ошибка воспроизведения звука: {e}")
+
+        # Запускаем в отдельном потоке, чтобы интерфейс не фризил
+        threading.Thread(target=async_sound, daemon=True).start()
+
     def load_settings(self):
         if os.path.exists(self.config_file):
             try:
                 with open(self.config_file, "r", encoding="utf-8") as f:
-                    saved_nick = f.read().strip()
-                    if saved_nick:
+                    content = f.read().strip()
+                    if ":" in content:
+                        saved_nick, saved_sound = content.split(":", 1)
                         self.nick = saved_nick
+                        self.sound_enabled = saved_sound == "True"
+                    else:
+                        if content:
+                            self.nick = content
             except Exception as e:
                 logging.error(f"Ошибка загрузки настроек: {e}")
 
     def save_settings(self):
         try:
             with open(self.config_file, "w", encoding="utf-8") as f:
-                f.write(self.nick)
+                f.write(f"{self.nick}:{self.sound_enabled}")
         except Exception as e:
             logging.error(f"Ошибка сохранения настроек: {e}")
+
+    def load_local_account(self):
+        if os.path.exists(self.account_file):
+            try:
+                with open(self.account_file, "r", encoding="utf-8") as f:
+                    data = f.read().strip().split(":")
+                    if len(data) == 2:
+                        self.my_uid = data[0]
+                        self.my_pwd = data[1]
+            except Exception as e:
+                logging.error(f"Ошибка чтения chat_ac.txt: {e}")
+
+    def save_local_account(self):
+        try:
+            with open(self.account_file, "w", encoding="utf-8") as f:
+                f.write(f"{self.my_uid}:{self.my_pwd}")
+        except Exception as e:
+            logging.error(f"Ошибка сохранения chat_ac.txt: {e}")
+
+    def register_firebase_account(self, stdscr):
+        stdscr.erase()
+        self.draw_small_header(stdscr)
+        stdscr.addstr(5, 2, " [ GENERATING UNIQUE ID... ] ", curses.A_REVERSE)
+        stdscr.refresh()
+
+        try:
+            accounts_ref = db.reference("accounts")
+            existing = accounts_ref.get() or {}
+            
+            chosen_id = None
+            for i in range(1, 10000):
+                if str(i) not in existing:
+                    chosen_id = str(i)
+                    break
+            
+            if not chosen_id:
+                stdscr.addstr(7, 2, "No free IDs available!", curses.color_pair(1))
+                stdscr.refresh()
+                time.sleep(2)
+                return False
+
+            pwd = self.safe_input(stdscr, 7, 2, f" Your assigned ID is {chosen_id}. Enter Password: ")
+            if not pwd:
+                return False
+                
+            accounts_ref.child(chosen_id).set({
+                "password": self.encrypt(pwd),
+                "nick": self.encrypt(self.nick)
+            })
+            
+            self.my_uid = chosen_id
+            self.my_pwd = pwd
+            self.save_local_account()
+            
+            stdscr.addstr(9, 2, " Account successfully created! Saved to chat_ac.txt ", curses.A_REVERSE)
+            stdscr.refresh()
+            time.sleep(2)
+            return True
+        except Exception as e:
+            logging.error(f"Ошибка при создании аккаунта Firebase: {e}")
+            return False
 
     def write_theme_to_file(self, path):
         theme_structure = {
             "colors": {
-                "text_background": 16,
-                "text_primary": 255,
-                "text_accent": 255,
-                "gradient": [196, 160, 124, 88, 124, 160, 194, 160]
+                "text_background": {"color": 16, "gradient": False},
+                "text_primary": {"color": 255, "gradient": True},
+                "text_accent": {"color": 250, "gradient": False},
+                "gradient": [160, 196, 160, 196, 160, 160, 160, 160]
             },
             "ui": {
                 "header_text": " - E C H O - ",
                 "separator_char": "=",
                 "msg_prefix": " {name} : ",
                 "input_prefix": " > ",
+                "logo_gradient": True,
                 "logo": self.default_logo
             }
         }
@@ -181,16 +294,21 @@ class XRLChat:
             with open(path, "r", encoding="utf-8") as f:
                 raw_content = f.read()
 
-            # Обработка возможных ручных опечаток в структуре JSON
-            fixed_content = re.sub(r',?\s*gradient\s*"\s*\w+\s*"', '', raw_content)
-            data = json.loads(fixed_content)
+            data = json.loads(raw_content)
             
             if "colors" in data:
                 colors = data["colors"]
-                if "text_background" in colors: self.theme_colors["text_background"] = int(colors["text_background"])
-                if "text_primary" in colors: self.theme_colors["text_primary"] = int(colors["text_primary"])
-                if "text_accent" in colors: self.theme_colors["text_accent"] = int(colors["text_accent"])
-                if "gradient" in colors: self.theme_colors["gradient"] = colors["gradient"]
+                for key in ["text_background", "text_primary", "text_accent"]:
+                    if key in colors:
+                        if isinstance(colors[key], dict):
+                            self.theme_colors[key]["color"] = int(colors[key].get("color", 255))
+                            self.theme_colors[key]["gradient"] = bool(colors[key].get("gradient", False))
+                        else:
+                            self.theme_colors[key]["color"] = int(colors[key])
+                            self.theme_colors[key]["gradient"] = False
+                            
+                if "gradient" in colors: 
+                    self.theme_colors["gradient"] = colors["gradient"]
 
             if "ui" in data:
                 ui = data["ui"]
@@ -198,6 +316,7 @@ class XRLChat:
                 if "separator_char" in ui: self.separator_char = ui["separator_char"]
                 if "msg_prefix" in ui: self.msg_prefix = ui["msg_prefix"]
                 if "input_prefix" in ui: self.input_prefix = ui["input_prefix"]
+                if "logo_gradient" in ui: self.logo_gradient = bool(ui["logo_gradient"])
                 if "logo" in ui: self.current_logo = ui["logo"]
 
             self.update_curses_colors()
@@ -208,27 +327,54 @@ class XRLChat:
 
     def update_curses_colors(self):
         try:
-            bg_id = self.theme_colors["text_background"]
-            primary_id = self.theme_colors["text_primary"]
-            accent_id = self.theme_colors["text_accent"]
+            bg_id = self.theme_colors["text_background"]["color"]
+            primary_id = self.theme_colors["text_primary"]["color"]
+            accent_id = self.theme_colors["text_accent"]["color"]
 
             curses.init_pair(1, primary_id, bg_id)
             curses.init_pair(2, accent_id, bg_id)
             curses.init_pair(3, accent_id, bg_id)
             curses.init_pair(4, primary_id, bg_id)
+            
+            gradient_list = self.theme_colors["gradient"]
+            for idx, color_id in enumerate(gradient_list):
+                curses.init_pair(50 + idx, color_id, bg_id)
         except Exception as e:
             logging.error(f"Ошибка применения цветов curses: {e}")
 
-    def draw_element_str(self, stdscr, y, x, text, color_pair_id, extra_attr=0):
+    def draw_text_with_gradient(self, stdscr, y, x, text, default_pair, is_gradient_active, extra_attr=0):
         if not text: return
-        try:
-            stdscr.addstr(y, x, text, curses.color_pair(color_pair_id) | extra_attr)
-        except:
-            pass
+        gradient_list = self.theme_colors["gradient"]
+        
+        if is_gradient_active and gradient_list:
+            current_x = x
+            for i, char in enumerate(text):
+                grad_pair_idx = 50 + (i % len(gradient_list))
+                try:
+                    stdscr.addstr(y, current_x, char, curses.color_pair(grad_pair_idx) | extra_attr)
+                except:
+                    pass
+                current_x += len(char.encode('utf-8', 'replace').decode('utf-8', 'replace'))
+        else:
+            try:
+                stdscr.addstr(y, x, text, curses.color_pair(default_pair) | extra_attr)
+            except:
+                pass
+
+    def draw_element_str(self, stdscr, y, x, text, color_pair_id, extra_attr=0):
+        is_grad = False
+        if color_pair_id == 1: 
+            is_grad = self.theme_colors["text_primary"]["gradient"]
+        elif color_pair_id in [2, 3]: 
+            is_grad = self.theme_colors["text_accent"]["gradient"]
+        elif color_pair_id == 4:
+            is_grad = self.logo_gradient
+        
+        self.draw_text_with_gradient(stdscr, y, x, text, color_pair_id, is_grad, extra_attr)
 
     def draw_big_logo(self, stdscr):
         for i, line in enumerate(self.current_logo):
-            self.draw_element_str(stdscr, i + 2, 2, line, 4, curses.A_BOLD)
+            self.draw_text_with_gradient(stdscr, i + 2, 2, line, 4, self.logo_gradient, curses.A_BOLD)
 
     def draw_small_header(self, stdscr):
         self.draw_element_str(stdscr, 1, 2, self.header_text, 4, curses.A_BOLD)
@@ -236,7 +382,8 @@ class XRLChat:
         stdscr.addstr(2, 2, sep_line, curses.color_pair(3)) 
         
         room = self.current_path.split('/')[-1]
-        status_line = f" session : {self.session} | room: {room} | nick : {self.nick}"
+        my_id_display = self.my_uid if self.my_uid else "No Account"
+        status_line = f" session : {self.session} | ID: {my_id_display} | nick : {self.nick}"
         self.draw_element_str(stdscr, 3, 2, status_line, 3)
 
     def safe_input(self, stdscr, y, x, prompt):
@@ -270,7 +417,7 @@ class XRLChat:
             self.draw_small_header(stdscr)
             stdscr.addstr(5, 2, " [ AVAILABLE 256 COLORS PALETTE ] ", curses.A_BOLD)
             
-            bg_id = self.theme_colors["text_background"]
+            bg_id = self.theme_colors["text_background"]["color"]
             start_y = 7
             cols_count = 12
             
@@ -278,7 +425,7 @@ class XRLChat:
                 row = c_num // cols_count
                 col = c_num % cols_count
                 
-                pair_id = 20 + (c_num % 230)
+                pair_id = 100 + (c_num % 150)
                 try:
                     curses.init_pair(pair_id, c_num, bg_id)
                 except:
@@ -396,6 +543,266 @@ class XRLChat:
                         stdscr.refresh()
                         time.sleep(1)
 
+    def open_friends_menu(self, stdscr):
+        if not self.my_uid:
+            stdscr.erase()
+            self.draw_small_header(stdscr)
+            stdscr.addstr(6, 2, "You don't have a registered Account ID yet!", curses.color_pair(1))
+            stdscr.addstr(8, 2, "[1] Generate Auto ID Account", curses.color_pair(2))
+            stdscr.addstr(9, 2, "[2] Relogin Existing Account", curses.color_pair(2))
+            stdscr.addstr(11, 2, "Press any other key to back...", curses.color_pair(3))
+            stdscr.refresh()
+            try:
+                sel = stdscr.get_wch()
+                if sel == '1':
+                    self.register_firebase_account(stdscr)
+                elif sel == '2':
+                    r_id = self.safe_input(stdscr, 13, 2, " Enter ID: ")
+                    r_pw = self.safe_input(stdscr, 14, 2, " Enter Password: ")
+                    if r_id and r_pw:
+                        data = db.reference(f"accounts/{r_id}").get()
+                        if data and self.decrypt(data.get("password", "")) == r_pw:
+                            self.my_uid = r_id
+                            self.my_pwd = r_pw
+                            self.save_local_account()
+                            stdscr.addstr(16, 2, " Logged in successfully! ", curses.A_REVERSE)
+                        else:
+                            stdscr.addstr(16, 2, " Invalid ID or Password! ", curses.color_pair(1))
+                        stdscr.refresh()
+                        time.sleep(1.5)
+            except:
+                pass
+            return
+
+        page = 0
+        idx = 0
+
+        while True:
+            friends_list = []
+            requests_list = []
+            
+            try:
+                f_data = db.reference(f"accounts/{self.my_uid}/friends").get()
+                if f_data and isinstance(f_data, dict):
+                    friends_list = sorted(list(f_data.keys()))
+                
+                req_data = db.reference("friends_requests").get() or {}
+                for r_id, payload in req_data.items():
+                    if isinstance(payload, dict):
+                        if payload.get("to") == self.my_uid:
+                            requests_list.append({"req_id": r_id, "from": payload.get("from")})
+            except Exception as e:
+                logging.error(f"Ошибка загрузки данных друзей: {e}")
+
+            max_per_page = 7
+            start_i = page * max_per_page
+            end_i = start_i + max_per_page
+            page_friends = friends_list[start_i:end_i]
+            has_next = end_i < len(friends_list)
+
+            menu_items = []
+            menu_items.append("Add Friend [ID]")
+            menu_items.append("Relogin [ID]")
+            
+            if requests_list:
+                menu_items.append("--- REQUESTS ---")
+                for r in requests_list:
+                    menu_items.append(f"Request from ID:{r['from']}")
+            
+            menu_items.append("--- FRIENDS LIST ---")
+            if not page_friends:
+                menu_items.append("(No friends yet)")
+            else:
+                for f_id in page_friends:
+                    menu_items.append(f"Friend ID:{f_id}")
+            
+            if has_next:
+                menu_items.append("Next Page >")
+            if page > 0:
+                menu_items.append("< Previous Page")
+                
+            menu_items.append("Back")
+
+            if idx >= len(menu_items): idx = len(menu_items) - 1
+            if idx < 0: idx = 0
+
+            stdscr.erase()
+            stdscr.bkgd(' ', curses.color_pair(1))
+            self.draw_small_header(stdscr)
+            stdscr.addstr(5, 2, f" [ FRIENDS SYSTEM ] | My ID: {self.my_uid} | Page: {page + 1}", curses.color_pair(3))
+
+            for i, item in enumerate(menu_items):
+                is_clickable = not item.startswith("---") and item != "(No friends yet)"
+                style = curses.A_REVERSE if (i == idx and is_clickable) else 0
+                
+                if item.startswith("---"):
+                    stdscr.addstr(7 + i, 2, item, curses.color_pair(3) | curses.A_BOLD)
+                else:
+                    prefix = " > " if is_clickable else "   "
+                    self.draw_element_str(stdscr, 7 + i, 2, f"{prefix}{item}", 2, style)
+
+            stdscr.refresh()
+            try:
+                key = stdscr.get_wch()
+            except:
+                continue
+
+            if key == curses.KEY_UP or key == 'k':
+                idx -= 1
+                while idx >= 0 and (menu_items[idx].startswith("---") or menu_items[idx] == "(No friends yet)"):
+                    idx -= 1
+            elif key == curses.KEY_DOWN or key == 'j':
+                idx += 1
+                while idx < len(menu_items) - 1 and (menu_items[idx].startswith("---") or menu_items[idx] == "(No friends yet)"):
+                    idx += 1
+            elif key in [10, 13, '\n', '\r']:
+                selected = menu_items[idx]
+                
+                if selected == "Back":
+                    break
+                    
+                elif selected == "Next Page >":
+                    page += 1
+                    idx = 0
+                    
+                elif selected == "< Previous Page":
+                    page -= 1
+                    idx = 0
+                    
+                elif selected == "Add Friend [ID]":
+                    target_id = self.safe_input(stdscr, 18, 2, " Target User ID: ")
+                    if target_id == self.my_uid:
+                        stdscr.addstr(20, 2, "You can't add yourself!", curses.color_pair(1))
+                    elif target_id:
+                        target_check = db.reference(f"accounts/{target_id}").get()
+                        if target_check:
+                            db.reference("friends_requests").push({
+                                "from": self.my_uid,
+                                "to": target_id
+                            })
+                            stdscr.addstr(20, 2, " Friend request sent successfully! ", curses.A_REVERSE)
+                        else:
+                            stdscr.addstr(20, 2, " User ID not found on server! ", curses.color_pair(1))
+                    stdscr.refresh()
+                    time.sleep(1.5)
+                    
+                elif selected == "Relogin [ID]":
+                    r_id = self.safe_input(stdscr, 18, 2, " Account ID: ")
+                    r_pw = self.safe_input(stdscr, 19, 2, " Password: ")
+                    if r_id and r_pw:
+                        data = db.reference(f"accounts/{r_id}").get()
+                        if data and self.decrypt(data.get("password", "")) == r_pw:
+                            self.my_uid = r_id
+                            self.my_pwd = r_pw
+                            self.save_local_account()
+                            stdscr.addstr(21, 2, " Relogin Successful! ", curses.A_REVERSE)
+                            page = 0
+                            idx = 0
+                        else:
+                            stdscr.addstr(21, 2, " Verification Error! ", curses.color_pair(1))
+                    stdscr.refresh()
+                    time.sleep(1.5)
+                    
+                elif selected.startswith("Request from ID:"):
+                    from_id = selected.split(":")[-1]
+                    req_obj = next((r for r in requests_list if r['from'] == from_id), None)
+                    if req_obj:
+                        stdscr.addstr(18, 2, f"Accept request from {from_id}? [y - Accept / n - Reject]: ", curses.color_pair(3))
+                        stdscr.refresh()
+                        try:
+                            choice = stdscr.get_wch()
+                            if choice in ['y', 'Y']:
+                                db.reference(f"accounts/{self.my_uid}/friends/{from_id}").set(True)
+                                db.reference(f"accounts/{from_id}/friends/{self.my_uid}").set(True)
+                                stdscr.addstr(20, 2, " Friend request Accepted! ", curses.A_REVERSE)
+                            else:
+                                stdscr.addstr(20, 2, " Request Rejected. ", curses.color_pair(1))
+                            db.reference(f"friends_requests/{req_obj['req_id']}").delete()
+                            stdscr.refresh()
+                            time.sleep(1.5)
+                        except:
+                            pass
+                            
+                elif selected.startswith("Friend ID:"):
+                    friend_id = selected.split(":")[-1]
+                    chat_room = f"messages/p2p/{min(self.my_uid, friend_id)}_{max(self.my_uid, friend_id)}"
+                    self.open_p2p_chat(stdscr, chat_room, friend_id)
+
+    def open_p2p_chat(self, stdscr, path, friend_id):
+        self.in_chat = True
+        self.current_path = path
+        self.messages_history = []
+        
+        try:
+            snap = db.reference(path).get() 
+            if snap and isinstance(snap, dict):
+                for k in snap:
+                    raw = snap[k].get('payload') if isinstance(snap[k], dict) else snap[k]
+                    dec = self.decrypt(raw)
+                    if dec: 
+                        self.process_msg(dec)
+        except Exception as e:
+            logging.error(f"Не удалось открыть приватный чат: {e}")
+            
+        self.start_msg_listener(path)
+        user_input = ""
+        stdscr.nodelay(True)
+        self.needs_update = True
+
+        while self.in_chat:
+            if self.needs_update:
+                stdscr.erase()
+                stdscr.bkgd(' ', curses.color_pair(1))
+                self.draw_small_header(stdscr)
+                stdscr.addstr(6, 2, f" --- PRIVATE WITH ID: {friend_id} (/exit или /unfriend) ---", curses.A_REVERSE)
+                
+                for i, msg in enumerate(self.messages_history[-14:]):
+                    self.draw_element_str(stdscr, 8 + i, 2, msg[:75], 1)
+                
+                try:
+                    stdscr.move(23, 2)
+                    stdscr.clrtoeol()
+                    display_input = f"{self.nick}{self.input_prefix}{user_input}_"
+                    self.draw_element_str(stdscr, 23, 2, display_input, 1, curses.A_BOLD)
+                except:
+                    pass
+                stdscr.refresh()
+                self.needs_update = False
+
+            try:
+                key = stdscr.get_wch()
+            except curses.error:
+                time.sleep(0.02)
+                continue
+
+            self.needs_update = True
+            
+            if key in [10, 13, '\n', '\r']:
+                if user_input == "/exit": 
+                    self.in_chat = False
+                    break
+                elif user_input == "/unfriend":
+                    db.reference(f"accounts/{self.my_uid}/friends/{friend_id}").delete()
+                    db.reference(f"accounts/{friend_id}/friends/{self.my_uid}").delete()
+                    self.in_chat = False
+                    break
+                if user_input.strip():
+                    pkt = f"send-message ({path}) ({self.session}) ({self.nick}) >{user_input}<"
+                    try:
+                        db.reference(path).push({'payload': self.encrypt(pkt)})
+                    except Exception as e:
+                        logging.error(f"Ошибка отправки сообщения: {e}")
+                    user_input = ""
+                    
+            elif key in [8, 127, 263, '\b', '\x7f', curses.KEY_BACKSPACE, 'KEY_BACKSPACE']: 
+                user_input = user_input[:-1]
+                
+            elif isinstance(key, str): 
+                user_input += key
+
+        self.in_chat = False
+        stdscr.nodelay(False)
+
     def authenticate_anonymously(self):
         url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FIREBASE_WEB_API_KEY}"
         payload = {"returnSecureToken": True}
@@ -459,12 +866,17 @@ class XRLChat:
             if event.data:
                 data = event.data
                 items = data if isinstance(data, dict) else {'new': data}
+                is_new_message = False
                 for k in items:
                     val = items[k]
                     raw = val.get('payload') if isinstance(val, dict) else val
                     dec = self.decrypt(raw)
                     if dec and "send-message" in dec: 
                         self.process_msg(dec, save=True)
+                        is_new_message = True
+                
+                if is_new_message:
+                    self.play_notification_sound()
                 self.needs_update = True
 
         try: 
@@ -641,9 +1053,11 @@ class XRLChat:
                 break
 
     def open_settings(self, stdscr):
-        s_opts = ["Change Nick", "Reset Session", "Back"]
         s_idx = 0
         while True:
+            sound_status = "[ON]" if self.sound_enabled else "[OFF]"
+            s_opts = ["Change Nick", f"Sound Notifications {sound_status}", "Reset Session", "Back"]
+            
             stdscr.erase()
             stdscr.bkgd(' ', curses.color_pair(1))
             self.draw_small_header(stdscr)
@@ -669,6 +1083,12 @@ class XRLChat:
                         self.nick = new_nick
                         self.save_settings()
                     break
+                elif "Sound Notifications" in sel_opt:
+                    # Переключаем состояние звука
+                    self.sound_enabled = not self.sound_enabled
+                    self.save_settings()
+                    if self.sound_enabled:
+                        self.play_notification_sound()
                 elif sel_opt == "Reset Session":
                     stdscr.erase()
                     self.draw_small_header(stdscr)
@@ -695,11 +1115,11 @@ class XRLChat:
             stdscr.erase()
             stdscr.bkgd(' ', curses.color_pair(1))
             self.draw_small_header(stdscr)
-            stdscr.addstr(8, 4, "--- XRL-CHAT PROJECT ---", curses.A_BOLD)
-            stdscr.addstr(10, 6, "Main Developer: xrl-def", curses.color_pair(1))
-            stdscr.addstr(11, 6, "Admin   :    Bogdanchick", curses.color_pair(1))
-            stdscr.addstr(13, 6, "Version         : 1.2.0 (JSON-Themes)", curses.color_pair(1))
-            stdscr.addstr(16, 4, "Press any key to return", curses.A_REVERSE)
+            stdscr.addstr(8, 4, "_____ E C H O  C H A T _____", curses.A_BOLD)
+            stdscr.addstr(10, 6, "Main Developer  :   xrl-def", curses.color_pair(1))
+            stdscr.addstr(11, 6, "Developer   :  Bogdan/fenix", curses.color_pair(1))
+            stdscr.addstr(13, 6, "Version : 1.5.1 (A-version)", curses.color_pair(1))
+            stdscr.addstr(16, 4, "  Press any key to return  ", curses.A_REVERSE)
             stdscr.refresh()
             try:
                 stdscr.get_wch()
@@ -730,7 +1150,7 @@ class XRLChat:
         threading.Thread(target=self.groups_observer, daemon=True).start()
 
         main_sel = 0
-        main_opts = ["Chat", "Groups", "Themes", "Settings", "Credits", "Exit"]
+        main_opts = ["Chat", "Groups", "Friends", "Themes", "Settings", "Credits", "Exit"]
         
         while self.running:
             stdscr.erase()
@@ -756,10 +1176,11 @@ class XRLChat:
             elif k in [10, 13, '\n', '\r']:
                 if main_sel == 0: self.open_chat(stdscr, "messages/chat")
                 elif main_sel == 1: self.open_groups(stdscr)
-                elif main_sel == 2: self.open_themes_menu(stdscr)
-                elif main_sel == 3: self.open_settings(stdscr)
-                elif main_sel == 4: self.open_credits(stdscr)
-                elif main_sel == 5: self.running = False
+                elif main_sel == 2: self.open_friends_menu(stdscr)
+                elif main_sel == 3: self.open_themes_menu(stdscr)
+                elif main_sel == 4: self.open_settings(stdscr)
+                elif main_sel == 5: self.open_credits(stdscr)
+                elif main_sel == 6: self.running = False
 
 if __name__ == "__main__":
     curses.wrapper(XRLChat().run)
