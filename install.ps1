@@ -15,3 +15,9 @@ $batContent = "@echo off`ncd /d `"$targetDir`"`npython launcher.py"
 
 Write-Host "Success! Installation complete." -ForegroundColor Green
 Write-Host "To start, type: start-xrl" -ForegroundColor Yellow
+
+# Добавляем папку пользователя в PATH, если ее там нет
+$currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if (-not $currentPath.Contains("$env:USERPROFILE")) {
+    [Environment]::SetEnvironmentVariable("Path", "$currentPath;$env:USERPROFILE", "User")
+}
