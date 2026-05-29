@@ -129,7 +129,7 @@ class XRLChat:
     def write_theme_to_file(self, path):
         theme_structure = {
             "colors": {
-                "text_background": 196,
+                "text_background": 16,
                 "text_primary": 255,
                 "text_accent": 255,
                 "gradient": [196, 160, 124, 88, 124, 160, 194, 160]
