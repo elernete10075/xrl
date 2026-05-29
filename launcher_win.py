@@ -3,34 +3,49 @@ import sys
 import subprocess
 import time
 
-def install_deps():
-    # Библиотеки, необходимые для Windows
+def install_dependencies():
+    """Установка всех необходимых библиотек для Windows."""
     libs = ["firebase-admin", "cryptography", "requests", "windows-curses"]
-    print("--- Installing/Updating dependencies for Windows ---")
+    print("--- Настройка окружения Windows ---")
     for lib in libs:
-        print(f"Installing {lib}...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", lib, "--quiet"])
+        print(f"Проверка/Установка: {lib}...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", lib, "--quiet"])
+        except subprocess.CalledProcessError:
+            print(f"[!] Не удалось установить {lib}. Проверь интернет.")
 
-def update_and_run():
-    # Файл чата
-    CHAT_FILE = "chat.py"
-    URL = "https://raw.githubusercontent.com/elernete10075/xrl/refs/heads/main/chat.py"
+def download_chat():
+    """Скачивание актуальной версии chat.py."""
+    url = "https://raw.githubusercontent.com/elernete10075/xrl/refs/heads/main/chat.py"
+    filename = "chat.py"
     
-    # Скачивание chat.py
-    import requests
-    print("Checking for updates...")
-    resp = requests.get(URL, timeout=10)
-    with open(CHAT_FILE, "w", encoding="utf-8") as f:
-        f.write(resp.text)
-    
-    # Запуск чата
-    print("Launching XRL-CHAT...")
-    subprocess.run([sys.executable, CHAT_FILE])
+    try:
+        import requests
+        print("Проверка обновлений...")
+        response = requests.get(url, timeout=15)
+        if response.status_code == 200:
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(response.text)
+            print("Файл chat.py обновлен.")
+        else:
+            print(f"[!] Ошибка скачивания: статус {response.status_code}")
+    except Exception as e:
+        print(f"[!] Ошибка подключения к серверу: {e}")
+
+def run_chat():
+    """Запуск чата."""
+    if os.path.exists("chat.py"):
+        print("Запуск XRL-CHAT...")
+        # Запуск через subprocess для корректной работы с потоками ввода-вывода
+        subprocess.run([sys.executable, "chat.py"])
+    else:
+        print("[!] Ошибка: файл chat.py не найден!")
+        input("Нажми Enter, чтобы выйти...")
 
 if __name__ == "__main__":
-    try:
-        install_deps()
-        update_and_run()
-    except Exception as e:
-        print(f"\n[Error] Something went wrong: {e}")
-        input("Press Enter to close...")
+    # 1. Ставим библиотеки
+    install_dependencies()
+    # 2. Обновляем код
+    download_chat()
+    # 3. Запускаем
+    run_chat()
