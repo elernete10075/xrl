@@ -401,7 +401,8 @@ def open_groups(self, stdscr):
                     break
             elif res == "Back": 
                 break
-    def open_settings(self, stdscr):
+
+def open_settings(self, stdscr):
         s_opts = ["Change Nick", "Reset Session", "Back"]
         s_idx = 0
         while True:
