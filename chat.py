@@ -198,10 +198,10 @@ class XRLChat:
 
     def draw_big_logo(self, stdscr):
         logo = [
-            r"____  ___         .__       _________ .__            __   ",
-            r"\   \/  /______ |  |      \_   ___ \|  |__ _____ _/  |_ ",
+            r"____  ___       .__      _________ .__            __   ",
+            r"\   \/  /______ |  |     \_   ___ \|  |__ _____ _/  |_ ",
             r" \     /\_  __ \  |      /    \  \/|  |  \\__  \\  __\\",
-            r" /     \ |  | \/  |__    \     \___|  Y  \/ __ \|  |  ",
+            r" /     \ |  | \/  |__    \     \___|   Y  \/ __ \|  |  ",
             r"/___/\  \|__|  |____/     \______  /___|  (____  /__|  ",
             r"      \_/                        \/     \/      \/      "
         ]
@@ -453,7 +453,7 @@ class XRLChat:
             stdscr.addstr(8, 4, "--- XRL-CHAT PROJECT ---", curses.color_pair(15) | curses.A_BOLD)
             stdscr.addstr(10, 6, "Main Developer: xrl-def", curses.color_pair(1))
             stdscr.addstr(11, 6, "AI Assistant  : Gemini AI", curses.color_pair(1))
-            stdscr.addstr(13, 6, "Version       : 1.0.4 (Stable)", curses.color_pair(1))
+            stdscr.addstr(13, 6, "Version       : 1.1.2 (Stable)", curses.color_pair(1))
             stdscr.addstr(16, 4, "Press any key to return...", curses.A_REVERSE)
             stdscr.refresh()
             try:
