@@ -501,7 +501,7 @@ class XRLChat:
         while self.running:
             stdscr.erase()
             self.draw_big_logo(stdscr) 
-            stdscr.addstr(9, 4, f" session : {self.session} (Auth OK) | nick : {self.nick}", curses.color_pair(1))
+            stdscr.addstr(10, 4, f" session : {self.session} (Auth OK) | nick : {self.nick}", curses.color_pair(1))
             for i, o in enumerate(main_opts):
                 style = curses.A_REVERSE | curses.A_BOLD if i == main_sel else curses.color_pair(1)
                 stdscr.addstr(11 + i, 8, f" [ {o} ] ", style)
