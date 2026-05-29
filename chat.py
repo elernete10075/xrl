@@ -460,7 +460,7 @@ class XRLChat:
             self.draw_small_header(stdscr)
             stdscr.addstr(8, 4, "--- XRL-CHAT PROJECT ---", curses.color_pair(15) | curses.A_BOLD)
             stdscr.addstr(10, 6, "Main Developer: xrl-def", curses.color_pair(1))
-            stdscr.addstr(11, 6, "Good People:Bogdanchick", curses.color_pair(1))
+            stdscr.addstr(11, 6, "Admin   :   Bogdanchick", curses.color_pair(1))
             stdscr.addstr(13, 6, "Version         : 1.1.4", curses.color_pair(1))
             stdscr.addstr(16, 4, "Press any key to return", curses.A_REVERSE)
             stdscr.refresh()
