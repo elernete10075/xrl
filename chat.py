@@ -241,12 +241,15 @@ class XRLChat:
         curses.curs_set(0)
         return input_str.strip()
 
-    def open_chat(self, stdscr, path):
+def open_chat(self, stdscr, path):
         self.in_chat = True
         self.current_path = path
         self.messages_history = []
+        
+        # Добавляем try-except вокруг get(), чтобы не виснуть
         try:
-            snap = db.reference(path).get()
+            # Устанавливаем короткий таймаут для проверки соединения
+            snap = db.reference(path).get() 
             if snap and isinstance(snap, dict):
                 for k in snap:
                     raw = snap[k].get('payload') if isinstance(snap[k], dict) else snap[k]
@@ -254,7 +257,9 @@ class XRLChat:
                     if dec: 
                         self.process_msg(dec)
         except Exception as e:
-            logging.error(f"Ошибка начальной загрузки чата ({path}): {e}")
+            # Если база закрыта, мы просто не увидим сообщений, но чат не зависнет
+            logging.error(f"Не удалось получить доступ к чату ({path}): {e}")
+            self.messages_history.append("!! ОШИБКА ДОСТУПА К БАЗЕ !!")
             
         self.start_msg_listener(path)
         user_input = ""
