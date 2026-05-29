@@ -15,7 +15,6 @@ import sys
 from firebase_admin import credentials, db
 from cryptography.fernet import Fernet
 
-# Импортируем winsound только если мы на Windows
 if sys.platform == "win32":
     import winsound
 
@@ -24,6 +23,7 @@ try:
 except Exception:
     pass
 
+# ИСПРАВЛЕНО: Убраны лишние слэши \ из параметра format
 logging.basicConfig(filename="xrl_error.log", level=logging.ERROR, 
                     format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -57,7 +57,7 @@ class XRLChat:
     def __init__(self):
         self.session = "Loading..."
         self.nick = "thoned"
-        self.sound_enabled = False # Настройка звука по умолчанию выключена
+        self.sound_enabled = False
         self.running = True
         self.cache_file = "xrl_cache.txt"
         self.config_file = "xrl_config.txt"
@@ -65,11 +65,11 @@ class XRLChat:
         self.themes_config_file = "themes_config.txt"
         self.account_file = "chat_ac.txt"
         
-        # Данные аккаунта мессенджера
         self.my_uid = None
         self.my_pwd = None
         
         self.messages_history = []
+        self.raw_messages_keys = []  
         self.groups_raw = {} 
         self.current_path = "messages/chat"
         self.needs_update = True
@@ -77,7 +77,6 @@ class XRLChat:
         self.in_chat = False
         self.data_lock = threading.Lock()
 
-        # Настройки UI по умолчанию
         self.header_text = " - E C H O - "
         self.separator_char = "="
         self.msg_prefix = " {name} : "
@@ -99,7 +98,7 @@ class XRLChat:
         self.theme_colors = {
             "text_background": {"color": 16, "gradient": False},
             "text_primary": {"color": 255, "gradient": True},
-            "text_accent": {"color": 250, "gradient": False},
+            "text_accent": {"color": 255, "gradient": False},
             "gradient": [160, 196, 160, 196, 160, 160, 160, 160]
         }
 
@@ -121,39 +120,72 @@ class XRLChat:
             return None
 
     def play_notification_sound(self):
-        """Воспроизведение готового системного звука без сторонних библиотек"""
         if not self.sound_enabled:
             return
             
         def async_sound():
             try:
                 if sys.platform == "win32":
-                    # Стандартный чистый звук уведомления Windows
                     winsound.MessageBeep(winsound.MB_ICONASTERISK)
                 else:
-                    # Попытка использовать aplay со встроенными системными звуками Ubuntu/Debian/Mint
                     linux_sound_paths = [
-                        "/usr/share/sounds/sound-icons/glass.wav",
-                        "/usr/share/sounds/ubuntu/audio/message.ogg",
-                        "/usr/share/sounds/freedesktop/stereo/message.oga",
-                        "/usr/share/sounds/purple/receive.wav"
+                        "/usr/share/sounds/freedesktop/stereo/bell.oga",
+                        "/usr/share/sounds/freedesktop/stereo/message-new-instant.oga",
+                        "/usr/share/sounds/gnome/default/alerts/glass.ogg",
+                        "/usr/share/sounds/ubuntu/audio/bell.ogg"
                     ]
                     played = False
                     for path in linux_sound_paths:
                         if os.path.exists(path):
-                            os.system(f"aplay -q {path} > /dev/null 2>&1 &")
+                            os.system(f"paplay {path} > /dev/null 2>&1 &")
                             played = True
                             break
                     
                     if not played:
-                        # Если звуковых файлов нет, используем стандартный системный писк терминала
-                        sys.stdout.write("\a")
+                        sys.stdout.write("\t\a")
                         sys.stdout.flush()
             except Exception as e:
                 logging.error(f"Ошибка воспроизведения звука: {e}")
 
-        # Запускаем в отдельном потоке, чтобы интерфейс не фризил
         threading.Thread(target=async_sound, daemon=True).start()
+
+    def check_and_trim_chat_limit(self, path):
+        def async_trim():
+            time.sleep(random.uniform(1.0, 2.0))
+            try:
+                snap = db.reference(path).get()
+                if snap and isinstance(snap, dict) and len(snap) > 15:
+                    sorted_keys = sorted(list(snap.keys()))
+                    to_delete_count = len(sorted_keys) - 15
+                    
+                    for i in range(to_delete_count):
+                        target_key = sorted_keys[i]
+                        check_exists = db.reference(f"{path}/{target_key}").get()
+                        if check_exists:
+                            db.reference(f"{path}/{target_key}").delete()
+            except Exception as e:
+                logging.error(f"Ошибка автоматического тримминга базы: {e}")
+
+        threading.Thread(target=async_trim, daemon=True).start()
+
+    def clear_my_messages_on_server(self):
+        try:
+            path = self.current_path
+            snap = db.reference(path).get()
+            if snap and isinstance(snap, dict):
+                for k, v in snap.items():
+                    raw = v.get('payload') if isinstance(v, dict) else v
+                    dec = self.decrypt(raw)
+                    if dec:
+                        match = re.search(r"\(.*?\)\s\((.*?)\)\s\((.*?)\)\s>(.*)<", dec)
+                        if match:
+                            _, name, _ = match.groups()
+                            if name == self.nick:
+                                db.reference(f"{path}/{k}").delete()
+            return True
+        except Exception as e:
+            logging.error(f"Ошибка при очистке сообщений пользователя: {e}")
+            return False
 
     def load_settings(self):
         if os.path.exists(self.config_file):
@@ -201,41 +233,48 @@ class XRLChat:
         stdscr.addstr(5, 2, " [ GENERATING UNIQUE ID... ] ", curses.A_REVERSE)
         stdscr.refresh()
 
+        pwd = self.safe_input(stdscr, 7, 2, " Enter Password for New Account: ")
+        if not pwd:
+            return False
+
+        def registration_transaction(current_data):
+            if current_data is None:
+                current_data = {}
+            
+            chosen = 1
+            while str(chosen) in current_data:
+                chosen += 1
+                
+            current_data[str(chosen)] = {
+                "password": self.encrypt(pwd),
+                "nick": self.encrypt(self.nick)
+            }
+            registration_transaction.allocated_id = str(chosen)
+            return current_data
+
+        registration_transaction.allocated_id = None
+
         try:
-            accounts_ref = db.reference("accounts")
-            existing = accounts_ref.get() or {}
+            ref = db.reference("accounts")
+            ref.transaction(registration_transaction)
             
-            chosen_id = None
-            for i in range(1, 10000):
-                if str(i) not in existing:
-                    chosen_id = str(i)
-                    break
-            
-            if not chosen_id:
-                stdscr.addstr(7, 2, "No free IDs available!", curses.color_pair(1))
+            allocated_id = registration_transaction.allocated_id
+            if allocated_id:
+                self.my_uid = allocated_id
+                self.my_pwd = pwd
+                self.save_local_account()
+                
+                stdscr.addstr(9, 2, f" Account successfully created! ID: {allocated_id} ", curses.A_REVERSE)
+                stdscr.refresh()
+                time.sleep(2)
+                return True
+            else:
+                stdscr.addstr(9, 2, " Transaction error. Try again. ", curses.color_pair(1))
                 stdscr.refresh()
                 time.sleep(2)
                 return False
-
-            pwd = self.safe_input(stdscr, 7, 2, f" Your assigned ID is {chosen_id}. Enter Password: ")
-            if not pwd:
-                return False
-                
-            accounts_ref.child(chosen_id).set({
-                "password": self.encrypt(pwd),
-                "nick": self.encrypt(self.nick)
-            })
-            
-            self.my_uid = chosen_id
-            self.my_pwd = pwd
-            self.save_local_account()
-            
-            stdscr.addstr(9, 2, " Account successfully created! Saved to chat_ac.txt ", curses.A_REVERSE)
-            stdscr.refresh()
-            time.sleep(2)
-            return True
         except Exception as e:
-            logging.error(f"Ошибка при создании аккаунта Firebase: {e}")
+            logging.error(f"Ошибка транзакции при регистрации: {e}")
             return False
 
     def write_theme_to_file(self, path):
@@ -243,7 +282,7 @@ class XRLChat:
             "colors": {
                 "text_background": {"color": 16, "gradient": False},
                 "text_primary": {"color": 255, "gradient": True},
-                "text_accent": {"color": 250, "gradient": False},
+                "text_accent": {"color": 255, "gradient": False},
                 "gradient": [160, 196, 160, 196, 160, 160, 160, 160]
             },
             "ui": {
@@ -381,7 +420,6 @@ class XRLChat:
         sep_line = " " + self.separator_char * 56 + " "
         stdscr.addstr(2, 2, sep_line, curses.color_pair(3)) 
         
-        room = self.current_path.split('/')[-1]
         my_id_display = self.my_uid if self.my_uid else "No Account"
         status_line = f" session : {self.session} | ID: {my_id_display} | nick : {self.nick}"
         self.draw_element_str(stdscr, 3, 2, status_line, 3)
@@ -548,7 +586,7 @@ class XRLChat:
             stdscr.erase()
             self.draw_small_header(stdscr)
             stdscr.addstr(6, 2, "You don't have a registered Account ID yet!", curses.color_pair(1))
-            stdscr.addstr(8, 2, "[1] Generate Auto ID Account", curses.color_pair(2))
+            stdscr.addstr(8, 2, "[1] Generate Auto ID Account (Protected)", curses.color_pair(2))
             stdscr.addstr(9, 2, "[2] Relogin Existing Account", curses.color_pair(2))
             stdscr.addstr(11, 2, "Press any other key to back...", curses.color_pair(3))
             stdscr.refresh()
@@ -790,6 +828,7 @@ class XRLChat:
                     pkt = f"send-message ({path}) ({self.session}) ({self.nick}) >{user_input}<"
                     try:
                         db.reference(path).push({'payload': self.encrypt(pkt)})
+                        self.check_and_trim_chat_limit(path)
                     except Exception as e:
                         logging.error(f"Ошибка отправки сообщения: {e}")
                     user_input = ""
@@ -801,6 +840,7 @@ class XRLChat:
                 user_input += key
 
         self.in_chat = False
+        self.stop_msg_listener()
         stdscr.nodelay(False)
 
     def authenticate_anonymously(self):
@@ -877,6 +917,7 @@ class XRLChat:
                 
                 if is_new_message:
                     self.play_notification_sound()
+                    self.check_and_trim_chat_limit(path)
                 self.needs_update = True
 
         try: 
@@ -884,20 +925,29 @@ class XRLChat:
         except Exception as e: 
             logging.error(f"Ошибка подписки на сообщения ({path}): {e}")
 
+    def stop_msg_listener(self):
+        """Гарантированное закрытие слушателя при выходе из комнаты"""
+        if self.listener_obj:
+            try:
+                self.listener_obj.close()
+                self.listener_obj = None
+            except Exception as e:
+                logging.error(f"Ошибка закрытия слушателя: {e}")
+
     def process_msg(self, dec, save=False):
         match = re.search(r"\(.*?\)\s\((.*?)\)\s\((.*?)\)\s>(.*)<", dec)
         if match:
             ses, name, txt = match.groups()
             prefix = self.msg_prefix.format(name=name)
             m = f"| {prefix}{txt}"
-            if m not in self.messages_history: 
-                self.messages_history.append(m)
-                if save:
-                    try:
-                        with open(self.cache_file, "a", encoding="utf-8") as f: 
-                            f.write(dec + "\n")
-                    except Exception as e:
-                        logging.error(f"Ошибка записи кэша: {e}")
+            
+            self.messages_history.append(m)
+            if save:
+                try:
+                    with open(self.cache_file, "a", encoding="utf-8") as f: 
+                        f.write(dec + "\n")
+                except Exception as e:
+                    logging.error(f"Ошибка записи кэша: {e}")
 
     def open_chat(self, stdscr, path):
         self.in_chat = True
@@ -957,6 +1007,7 @@ class XRLChat:
                     pkt = f"send-message ({path}) ({self.session}) ({self.nick}) >{user_input}<"
                     try:
                         db.reference(path).push({'payload': self.encrypt(pkt)})
+                        self.check_and_trim_chat_limit(path)
                     except Exception as e:
                         logging.error(f"Ошибка отправки сообщения: {e}")
                     user_input = ""
@@ -968,6 +1019,7 @@ class XRLChat:
                 user_input += key
 
         self.in_chat = False
+        self.stop_msg_listener()
         stdscr.nodelay(False)
 
     def open_groups(self, stdscr):
@@ -1056,7 +1108,7 @@ class XRLChat:
         s_idx = 0
         while True:
             sound_status = "[ON]" if self.sound_enabled else "[OFF]"
-            s_opts = ["Change Nick", f"Sound Notifications {sound_status}", "Reset Session", "Back"]
+            s_opts = ["Change Nick", f"Sound Notifications {sound_status}", "Clear Your Messages", "Reset Session", "Back"]
             
             stdscr.erase()
             stdscr.bkgd(' ', curses.color_pair(1))
@@ -1078,17 +1130,28 @@ class XRLChat:
             elif k in [10, 13, '\n', '\r']:
                 sel_opt = s_opts[s_idx]
                 if sel_opt == "Change Nick":
-                    new_nick = self.safe_input(stdscr, 12, 4, " New Nick: ")
+                    new_nick = self.safe_input(stdscr, 14, 4, " New Nick: ")
                     if new_nick:
                         self.nick = new_nick
                         self.save_settings()
                     break
                 elif "Sound Notifications" in sel_opt:
-                    # Переключаем состояние звука
                     self.sound_enabled = not self.sound_enabled
                     self.save_settings()
                     if self.sound_enabled:
                         self.play_notification_sound()
+                elif sel_opt == "Clear Your Messages":
+                    stdscr.erase()
+                    self.draw_small_header(stdscr)
+                    stdscr.addstr(10, 4, " Clearing your messages from server... ", curses.A_REVERSE)
+                    stdscr.refresh()
+                    if self.clear_my_messages_on_server():
+                        stdscr.addstr(12, 4, " Done! Your messages deleted. ", curses.A_REVERSE)
+                    else:
+                        stdscr.addstr(12, 4, " Error accessing database! ", curses.color_pair(1))
+                    stdscr.refresh()
+                    time.sleep(1.5)
+                    break
                 elif sel_opt == "Reset Session":
                     stdscr.erase()
                     self.draw_small_header(stdscr)
@@ -1115,11 +1178,11 @@ class XRLChat:
             stdscr.erase()
             stdscr.bkgd(' ', curses.color_pair(1))
             self.draw_small_header(stdscr)
-            stdscr.addstr(8, 4, "_____ E C H O  C H A T _____", curses.A_BOLD)
-            stdscr.addstr(10, 6, "Main Developer  :   xrl-def", curses.color_pair(1))
-            stdscr.addstr(11, 6, "Developer   :  Bogdan/fenix", curses.color_pair(1))
-            stdscr.addstr(13, 6, "Version : 1.5.1 (A-version)", curses.color_pair(1))
-            stdscr.addstr(16, 4, "  Press any key to return  ", curses.A_REVERSE)
+            stdscr.addstr(8, 4, "_____ E C H O C H A T _____", curses.A_BOLD)
+            stdscr.addstr(10, 6, " Main Developer : xrl-def ", curses.color_pair(1))
+            stdscr.addstr(11, 6, " Admin   :    Bogdanchick ", curses.color_pair(1))
+            stdscr.addstr(13, 6, " Version    :    1.6.0(A) ", curses.color_pair(1))
+            stdscr.addstr(16, 4, " Press any key to return. ", curses.A_REVERSE)
             stdscr.refresh()
             try:
                 stdscr.get_wch()
