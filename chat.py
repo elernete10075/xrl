@@ -207,13 +207,12 @@ class XRLChat:
             r"░▒▓█▓▒░     ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ ",
             r"░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ ",
             r"░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░  ",
-            r"_____________________________________________________",
         ]
         for i, line in enumerate(logo):
             self.draw_smooth_gradient(stdscr, i + 2, 2, line)
 
     def draw_small_header(self, stdscr):
-        self.draw_smooth_gradient(stdscr, 1, 2, " [ XRL-CHAT ] ")
+        self.draw_smooth_gradient(stdscr, 1, 2, "  - E C H O -  ")
         stdscr.addstr(2, 2, " " + "="*56 + " ", curses.color_pair(1)) 
         room = self.current_path.split('/')[-1]
         stdscr.addstr(3, 2, f" session : {self.session} | room: {room}", curses.color_pair(1))
