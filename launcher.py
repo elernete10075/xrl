@@ -11,7 +11,9 @@ YELLOW = "\033[1;33m"
 GRAY = "\033[0;37m"
 RESET = "\033[0m"
 
-# Логотип БЕЗ пробелов слева — они добавляются чисто в коде
+# Проверка, запущены ли мы в Termux
+IS_TERMUX = "com.termux" in os.environ.get("PREFIX", "") or os.path.exists("/data/data/com.termux")
+
 LOGO_RAW = [
     "░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░",
     "░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░",
@@ -23,18 +25,11 @@ LOGO_RAW = [
 ]
 
 LINE_COLORS = [
-    CYAN,
-    CYAN,
-    MAGENTA,
-    MAGENTA,
-    DARK_MAGENTA,
-    DARK_MAGENTA,
-    DARK_MAGENTA
+    CYAN, CYAN, MAGENTA, MAGENTA, DARK_MAGENTA, DARK_MAGENTA, DARK_MAGENTA
 ]
 
 def render_logo():
     output = []
-    # Жесткий отступ 8 пробелов ВНЕ ANSI-кода цвета
     INDENT = "        "
     for line, color in zip(LOGO_RAW, LINE_COLORS):
         output.append(f"{INDENT}{color}{line}{RESET}")
@@ -53,20 +48,48 @@ def print_progress(stage_name, percent):
     print(f"[{CYAN}{bar}{RESET}] {percent}%\n")
 
 def check_libs():
-    required_libs = ["firebase-admin", "cryptography", "requests"]
-    for i, lib in enumerate(required_libs):
-        percent = int(10 + (i / len(required_libs)) * 30)
-        print_progress(f"checking dependency {lib}", percent)
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", lib, "--quiet", "--break-system-packages"],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
+    if IS_TERMUX:
+        # В Termux cryptography лучше ставить через pkg, остальное через pip
+        termux_packages = {
+            "cryptography": "python-cryptography",
+            "firebase-admin": "firebase-admin",
+            "requests": "python-requests"
+        }
+        
+        for i, (lib_name, pkg_name) in enumerate(termux_packages.items()):
+            percent = int(10 + (i / len(termux_packages)) * 30)
+            print_progress(f"checking dependency {lib_name}", percent)
+            
+            if lib_name == "cryptography":
+                subprocess.run(
+                    ["pkg", "install", pkg_name, "-y"],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+            else:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", lib_name, "--quiet"],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+    else:
+        # Стандартная установка для обычного Linux
+        required_libs = ["firebase-admin", "cryptography", "requests"]
+        for i, lib in enumerate(required_libs):
+            percent = int(10 + (i / len(required_libs)) * 30)
+            print_progress(f"checking dependency {lib}", percent)
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", lib, "--quiet", "--break-system-packages"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
 
 def update_chat_code():
     GITHUB_RAW_CHAT_URL = "https://raw.githubusercontent.com/elernete10075/xrl/refs/heads/main/chat.py"
-    GITHUB_RAW_KEY_URL = "https://raw.githubusercontent.com/elernete10075/xrl/main/Server_1.json"
+    GITHUB_RAW_KEY_URL = "https://raw.githubusercontent.com/elernete10075/xrl/main/Server_1.enc"
     
     CHAT_FILE = "chat.py"
     KEY_FILE = "Server_1.json"
@@ -76,13 +99,15 @@ def update_chat_code():
     
     try:
         import requests
+        import base64
         
         if not os.path.exists(KEY_FILE):
-            print_progress(f"downloading {KEY_FILE}", 65)
+            print_progress(f"downloading key", 65)
             key_resp = requests.get(GITHUB_RAW_KEY_URL, timeout=10)
             if key_resp.status_code == 200:
+                decoded = base64.b64decode(key_resp.text.strip()).decode('utf-8')
                 with open(KEY_FILE, "w", encoding="utf-8") as f:
-                    f.write(key_resp.text)
+                    f.write(decoded)
         
         print_progress("downloading latest updates", 85)
         response = requests.get(GITHUB_RAW_CHAT_URL, timeout=10)
