@@ -3,14 +3,14 @@
 # Очистка экрана
 clear
 
-# Вывод логотипа ECHO с сохранением выравнивания (8 пробелов) и цветным градиентом
-echo -e "\033[1;36m        ░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░  \033[0m"
-echo -e "\033[1;36m        ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ \033[0m"
-echo -e "\033[1;35m        ░▒▓█▓▒░     ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ \033[0m"
-echo -e "\033[1;35m        ░▒▓██████▓▒░░▒▓█▓▒░      ░▒▓████████▓▒░▒▓█▓▒░░▒▓█▓▒░ \033[0m"
-echo -e "\033[0;35m        ░▒▓█▓▒░     ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ \033[0m"
-echo -e "\033[0;35m        ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ \033[0m"
-echo -e "\033[0;35m        ░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░  \033[0m"
+# Вывод логотипа ECHO без отступов (не съезжает в узком терминале)
+echo -e "\033[1;36m░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░\033[0m"
+echo -e "\033[1;36m░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░\033[0m"
+echo -e "\033[1;35m░▒▓█▓▒░     ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░\033[0m"
+echo -e "\033[1;35m░▒▓██████▓▒░░▒▓█▓▒░      ░▒▓████████▓▒░▒▓█▓▒░░▒▓█▓▒░\033[0m"
+echo -e "\033[0;35m░▒▓█▓▒░     ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░\033[0m"
+echo -e "\033[0;35m░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░\033[0m"
+echo -e "\033[0;35m░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░\033[0m"
 echo -e "\033[0;37m========================================================\033[0m"
 echo -e "\033[1;33m             INSTALLING XRL-CHAT SYSTEM                \033[0m"
 echo -e "\033[0;37m========================================================\033[0m\n"
@@ -23,7 +23,7 @@ KEY_NAME="Server_1.json"
 # Создаем папку xrl-chat
 mkdir -p "$TARGET_DIR"
 
-# Удаляем старые версии лаунчера, если они оставались
+# Удаляем старые версии лаунчера
 rm -f "$HOME/$LAUNCHER_NAME"
 rm -f "$TARGET_DIR/$LAUNCHER_NAME"
 
@@ -43,25 +43,39 @@ else
     echo -e "\033[1;31m     [ERROR] Failed to download $LAUNCHER_NAME!\033[0m"
 fi
 
-# 3. Настройка алиаса start-xrl
-echo -e "\033[1;36m[3/3] Configuring short command 'start-xrl'...\033[0m"
+# 3. Настройка команд быстрый запуск 'echochat' и 'start-xrl'
+echo -e "\033[1;36m[3/3] Configuring 'echochat' command...\033[0m"
+
+# Вариант 1: Исполняемый файл в ~/.local/bin (работает сразу)
+BIN_DIR="$HOME/.local/bin"
+mkdir -p "$BIN_DIR"
+cat << 'EOF' > "$BIN_DIR/echochat"
+#!/bin/bash
+cd "$HOME/xrl-chat" && python3 "$HOME/xrl-chat/launcher.py"
+EOF
+chmod +x "$BIN_DIR/echochat"
+
+# Вариант 2: Добавление алиасов в shell-конфиги
 SHELL_RC="$HOME/.bashrc"
 if [ -f "$HOME/.zshrc" ]; then
     SHELL_RC="$HOME/.zshrc"
 fi
 
-# Удаляем старый алиас и прописываем актуальный
 sed -i '/alias start-xrl=/d' "$SHELL_RC"
-echo "alias start-xrl='cd \$HOME/xrl-chat && python3 \$HOME/xrl-chat/$LAUNCHER_NAME'" >> "$SHELL_RC"
-echo -e "\033[0;37m     -> Alias created in $SHELL_RC\033[0m"
+sed -i '/alias echochat=/d' "$SHELL_RC"
+
+echo "alias echochat='cd \$HOME/xrl-chat && python3 \$HOME/xrl-chat/launcher.py'" >> "$SHELL_RC"
+echo "alias start-xrl='cd \$HOME/xrl-chat && python3 \$HOME/xrl-chat/launcher.py'" >> "$SHELL_RC"
+
+echo -e "\033[0;37m     -> Executable command created in $BIN_DIR/echochat\033[0m"
 
 echo -e "\n\033[0;37m--------------------------------------------------------\033[0m"
 echo -e "\033[1;32m SUCCESS! Installation complete.\033[0m"
-echo -e "\033[1;33m To start the application, type: start-xrl\033[0m"
+echo -e "\033[1;33m To start the application, type: echochat\033[0m"
 echo -e "\033[0;37m--------------------------------------------------------\033[0m\n"
 
 echo -e "\033[1;36mStarting the chat for the first time...\033[0m\n"
 
-# Переходим в папку и запускаем
+# Переходим в папку и запускаем лаунчер
 cd "$TARGET_DIR"
 python3 "$LAUNCHER_NAME"
