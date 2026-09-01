@@ -2,7 +2,7 @@
 
 clear
 
-# Ультра-компактный логотип ECHO (ширина всего 24 символа - не съедет ни в каком терминале)
+# Компактный логотип ECHO
 echo -e "\033[1;36m██████  ██████ ██  ██  ██████ \033[0m"
 echo -e "\033[1;36m██      ██     ██  ██  ██  ██ \033[0m"
 echo -e "\033[1;35m██████  ██     ██████  ██  ██ \033[0m"
@@ -26,17 +26,25 @@ curl -sSL "https://raw.githubusercontent.com/elernete10075/xrl/refs/heads/main/$
 
 echo -e "\033[1;36m[3/3] Creating global 'echochat' command...\033[0m"
 
-# Создаем папку bin в домашней директории
+# Создание бинарного файла команды в ~/.local/bin
 BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
-
-# Создаем исполняемый файл echochat
 CMD_FILE="$BIN_DIR/echochat"
-echo "#!/bin/bash" > "$CMD_FILE"
-echo "cd \"$TARGET_DIR\" && python3 \"$TARGET_DIR/$LAUNCHER_NAME\" \"\$@\"" >> "$CMD_FILE"
+
+cat << 'EOF' > "$CMD_FILE"
+#!/bin/bash
+cd "$HOME/xrl-chat" && python3 "$HOME/xrl-chat/launcher.py" "$@"
+EOF
+
 chmod +x "$CMD_FILE"
 
-# Прописываем PATH в bashrc и zshrc чтобы команда подхватывалась сразу
+# Попытка продублировать в системную папку /usr/local/bin (если есть sudo/права)
+if [ -w "/usr/local/bin" ]; then
+    cp "$CMD_FILE" "/usr/local/bin/echochat" 2>/dev/null
+    chmod +x "/usr/local/bin/echochat" 2>/dev/null
+fi
+
+# Регистрация пути и алиасов в bashrc / zshrc
 for RC in "$HOME/.bashrc" "$HOME/.zshrc"; do
     if [ -f "$RC" ]; then
         sed -i '/alias echochat=/d' "$RC"
@@ -45,15 +53,16 @@ for RC in "$HOME/.bashrc" "$HOME/.zshrc"; do
             echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$RC"
         fi
         echo "alias echochat='cd $TARGET_DIR && python3 $TARGET_DIR/$LAUNCHER_NAME'" >> "$RC"
+        echo "alias start-xrl='cd $TARGET_DIR && python3 $TARGET_DIR/$LAUNCHER_NAME'" >> "$RC"
     fi
 done
 
-# Экспортируем PATH для текущей сессии
-export PATH="$HOME/.local/bin:$PATH"
-
 echo -e "\n\033[1;32mSUCCESS! Installation complete.\033[0m"
-echo -e "\033[1;33mTo launch anytime, type: echochat\033[0m\n"
+echo -e "\033[1;33mTo start chat in a new terminal, type: echochat\033[0m\n"
 
-# Переходим и запускаем
+# Сброс режимов ввода TTY терминала перед вызовом чата (чинит неработающие стрелки)
+stty sane 2>/dev/null
+
+# Запуск
 cd "$TARGET_DIR"
 python3 "$LAUNCHER_NAME"
