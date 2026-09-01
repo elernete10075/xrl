@@ -11,15 +11,15 @@ YELLOW = "\033[1;33m"
 GRAY = "\033[0;37m"
 RESET = "\033[0m"
 
-# Компактный логотип ECHO (без отступов слева, чтобы не ломать узкие окна терминала)
+# Исходный логотип ECHO с 8 пробелами отступа слева
 LOGOTYPE = f"""
-{CYAN}░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░
-░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░{MAGENTA}
-░▒▓█▓▒░     ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░
-░▒▓██████▓▒░░▒▓█▓▒░      ░▒▓████████▓▒░▒▓█▓▒░░▒▓█▓▒░{DARK_MAGENTA}
-░▒▓█▓▒░     ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░
-░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░
-░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░{RESET}
+{CYAN}  ░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░  
+        ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ {MAGENTA}
+        ░▒▓█▓▒░     ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ 
+        ░▒▓██████▓▒░░▒▓█▓▒░      ░▒▓████████▓▒░▒▓█▓▒░░▒▓█▓▒░ {DARK_MAGENTA}
+        ░▒▓█▓▒░     ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ 
+        ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ 
+        ░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░  {RESET}
 """
 
 def print_progress(stage_name, percent):
@@ -34,43 +34,15 @@ def print_progress(stage_name, percent):
     
     print(f"[{CYAN}{bar}{RESET}] {percent}%\n")
 
-def create_global_command():
-    """Создает бинарный скрипт-вызов 'echochat' в ~/.local/bin (работает везде без перезапуска shell)"""
-    try:
-        home = os.path.expanduser("~")
-        bin_dir = os.path.join(home, ".local", "bin")
-        os.makedirs(bin_dir, exist_ok=True)
-        
-        cmd_file = os.path.join(bin_dir, "echochat")
-        script_path = os.path.abspath(__file__)
-        app_dir = os.path.dirname(script_path)
-        
-        # Записываем bash-скрипт запуска
-        with open(cmd_file, "w", encoding="utf-8") as f:
-            f.write(f"#!/bin/bash\ncd \"{app_dir}\" && {sys.executable} \"{script_path}\"\n")
-        
-        # Делаем файл исполняемым
-        os.chmod(cmd_file, 0o755)
-        
-        # Также добавляем про запас в .bashrc / .zshrc
-        shell_rc = os.path.join(home, ".zshrc") if os.path.exists(os.path.join(home, ".zshrc")) else os.path.join(home, ".bashrc")
-        if os.path.exists(shell_rc):
-            alias_line = f"alias echochat='cd \"{app_dir}\" && {sys.executable} \"{script_path}\"'"
-            with open(shell_rc, "r", encoding="utf-8") as f:
-                content = f.read()
-            if "alias echochat=" not in content:
-                with open(shell_rc, "a", encoding="utf-8") as f:
-                    f.write(f"\n{alias_line}\n")
-    except Exception:
-        pass
-
 def check_libs():
     required_libs = ["firebase-admin", "cryptography", "requests"]
     for i, lib in enumerate(required_libs):
         percent = int(10 + (i / len(required_libs)) * 30)
         print_progress(f"checking dependency {lib}", percent)
+        # Изолируем stdin, чтобы pip не ломал настройки TTY терминала
         subprocess.run(
             [sys.executable, "-m", "pip", "install", lib, "--quiet", "--break-system-packages"],
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
@@ -111,14 +83,25 @@ def update_chat_code():
             print(f"\n{GRAY}[Error] Нет подключения к сети!{RESET}")
             sys.exit(1)
 
+def reset_tty():
+    """Сброс TTY режимов"""
+    try:
+        os.system('stty sane 2>/dev/null')
+    except Exception:
+        pass
+
 if __name__ == "__main__":
-    create_global_command()
     check_libs()
     update_chat_code()
     
-    # Прямая передача управления процессом через execv вместо os.system
     if os.path.exists("chat.py"):
+        reset_tty()
         os.system('clear')
-        os.execv(sys.executable, [sys.executable, "chat.py"])
+        # Пробрасываем /dev/tty напрямую для работы клавиш-стрелок в curses
+        try:
+            with open('/dev/tty', 'r+') as tty:
+                subprocess.run([sys.executable, "chat.py"], stdin=tty, stdout=tty, stderr=tty)
+        except Exception:
+            subprocess.run([sys.executable, "chat.py"])
     else:
         print(f"\n{GRAY}[Error] Файл chat.py не найден.{RESET}")
