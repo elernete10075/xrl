@@ -8,5 +8,6 @@ windows - (powersheel command)
 linux - (cmd command) 
 > curl -sSL https://raw.githubusercontent.com/elernete10075/xrl/main/install.sh | bash
 
-termux(android) - soon ...
+termux(android) - (command)
+> curl -sSL https://raw.githubusercontent.com/elernete10075/xrl/main/install_termux.sh | bash
 
