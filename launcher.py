@@ -11,21 +11,21 @@ YELLOW = "\033[1;33m"
 GRAY = "\033[0;37m"
 RESET = "\033[0m"
 
-# Исходный логотип ECHO с 8 пробелами отступа слева
-LOGOTYPE = f"""
-{CYAN}        ░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░  
-        ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ {MAGENTA}
-        ░▒▓█▓▒░     ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ 
-        ░▒▓██████▓▒░░▒▓█▓▒░      ░▒▓████████▓▒░▒▓█▓▒░░▒▓█▓▒░ {DARK_MAGENTA}
-        ░▒▓█▓▒░     ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ 
-        ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ 
-        ░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░  {RESET}
-"""
+# Логотип ECHO с ровным отступом в 8 пробелов на КАЖДОЙ строке
+LOGOTYPE = (
+    f"{CYAN}        ░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░  \n"
+    f"        ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ {MAGENTA}\n"
+    f"        ░▒▓█▓▒░     ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ \n"
+    f"        ░▒▓██████▓▒░░▒▓█▓▒░      ░▒▓████████▓▒░▒▓█▓▒░░▒▓█▓▒░ {DARK_MAGENTA}\n"
+    f"        ░▒▓█▓▒░     ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ \n"
+    f"        ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ \n"
+    f"        ░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░  {RESET}"
+)
 
 def print_progress(stage_name, percent):
     os.system('clear' if os.name != 'nt' else 'cls')
     print(LOGOTYPE)
-    print(f"{YELLOW}>>> Loading XRL-CHAT System...{RESET}\n")
+    print(f"\n{YELLOW}>>> Loading XRL-CHAT System...{RESET}\n")
     print(f"    {stage_name} ...")
     
     bar_length = 20
@@ -39,7 +39,6 @@ def check_libs():
     for i, lib in enumerate(required_libs):
         percent = int(10 + (i / len(required_libs)) * 30)
         print_progress(f"checking dependency {lib}", percent)
-        # Изолируем stdin, чтобы pip не ломал настройки TTY терминала
         subprocess.run(
             [sys.executable, "-m", "pip", "install", lib, "--quiet", "--break-system-packages"],
             stdin=subprocess.DEVNULL,
@@ -84,7 +83,6 @@ def update_chat_code():
             sys.exit(1)
 
 def reset_tty():
-    """Сброс TTY режимов"""
     try:
         os.system('stty sane 2>/dev/null')
     except Exception:
@@ -97,7 +95,6 @@ if __name__ == "__main__":
     if os.path.exists("chat.py"):
         reset_tty()
         os.system('clear')
-        # Пробрасываем /dev/tty напрямую для работы клавиш-стрелок в curses
         try:
             with open('/dev/tty', 'r+') as tty:
                 subprocess.run([sys.executable, "chat.py"], stdin=tty, stdout=tty, stderr=tty)
