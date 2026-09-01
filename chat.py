@@ -8,90 +8,194 @@ import random
 import string
 import threading
 import queue
+import base64
 import firebase_admin
 from firebase_admin import credentials, db
 
 # ==========================================
-# FIREBASE & ASYNC ENGINE
+# FIREBASE & ENCRYPTION ENGINE
 # ==========================================
 DB_URL = "https://xrl-chat-default-rtdb.europe-west1.firebasedatabase.app/"
 
-messages_ref = None
+global_chat_ref = None
+groups_ref = None
 users_ref = None
 msg_queue = queue.Queue()
 
+SECRET_KEY = "xrl_echo_secure_key_2026"
+
+def xor_cipher(data: str, key: str = SECRET_KEY) -> str:
+    if not data:
+        return ""
+    key_chars = [ord(c) for c in key]
+    res = []
+    for i, char in enumerate(data):
+        res.append(chr(ord(char) ^ key_chars[i % len(key_chars)]))
+    return "".join(res)
+
+def encrypt_str(plain_text: str) -> str:
+    if not plain_text:
+        return ""
+    cipher = xor_cipher(plain_text)
+    return base64.b64encode(cipher.encode('utf-8')).decode('utf-8')
+
+def decrypt_str(cipher_text: str) -> str:
+    if not cipher_text:
+        return ""
+    try:
+        decoded = base64.b64decode(cipher_text.encode('utf-8')).decode('utf-8')
+        return xor_cipher(decoded)
+    except Exception:
+        return cipher_text
+
 def init_firebase():
-    global messages_ref, users_ref
+    global global_chat_ref, groups_ref, users_ref
     cred_file = "Server_1.json"
     if os.path.exists(cred_file):
         try:
             if not firebase_admin._apps:
                 cred = credentials.Certificate(cred_file)
                 firebase_admin.initialize_app(cred, {'databaseURL': DB_URL})
-            messages_ref = db.reference("messages")
+            global_chat_ref = db.reference("chat/global/messages")
+            groups_ref = db.reference("groups")
             users_ref = db.reference("users")
         except Exception:
             pass
 
 init_firebase()
 
-def generate_unique_id():
+def register_or_get_user(username):
     ID_FILE = "ac_id"
+    user_id = ""
     if os.path.exists(ID_FILE):
         with open(ID_FILE, "r", encoding="utf-8") as f:
-            return f.read().strip()
+            user_id = f.read().strip()
+    else:
+        user_id = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        with open(ID_FILE, "w", encoding="utf-8") as f:
+            f.write(user_id)
 
-    new_id = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
     if users_ref:
         try:
-            existing_users = users_ref.get() or {}
-            while new_id in existing_users:
-                new_id = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
-            users_ref.child(new_id).set({"created_at": time.time()})
+            users_ref.child(user_id).set({
+                "username": encrypt_str(username),
+                "last_active": time.time()
+            })
         except Exception:
             pass
 
-    with open(ID_FILE, "w", encoding="utf-8") as f:
-        f.write(new_id)
+    return user_id
 
-    return new_id
-
-def async_send_message(username, text, group="Global"):
-    if not messages_ref:
+def async_send_global_message(username, text):
+    if not global_chat_ref:
         return
     try:
-        messages_ref.push({
-            'username': username,
-            'text': text,
-            'group': group,
+        global_chat_ref.push({
+            'username': encrypt_str(username),
+            'text': encrypt_str(text),
             'timestamp': time.time()
         })
     except Exception as e:
         msg_queue.put({"type": "error", "content": f"[System Error]: {e}"})
 
-def background_fetch_loop():
-    last_seen_keys = set()
+def async_send_group_message(username, text, group_name):
+    if not groups_ref:
+        return
+    try:
+        groups_ref.child(group_name).child("messages").push({
+            'username': encrypt_str(username),
+            'text': encrypt_str(text),
+            'timestamp': time.time()
+        })
+    except Exception as e:
+        msg_queue.put({"type": "error", "content": f"[System Error]: {e}"})
+
+def background_fetch_loop(app_instance):
+    last_global_keys = set()
+    last_group_keys = set()
+    last_group = None
+    
     while True:
         try:
-            if messages_ref:
-                data = messages_ref.order_by_key().limit_to_last(50).get()
-                if data and isinstance(data, dict):
-                    for key, val in data.items():
-                        if key not in last_seen_keys:
-                            last_seen_keys.add(key)
-                            if isinstance(val, dict) and 'text' in val and 'username' in val:
-                                msg_queue.put({
-                                    "type": "chat",
-                                    "username": val.get('username'),
-                                    "text": val.get('text'),
-                                    "group": val.get('group', 'Global')
-                                })
+            if groups_ref:
+                remote_groups_data = groups_ref.get()
+                if remote_groups_data and isinstance(remote_groups_data, dict):
+                    for g_name in remote_groups_data.keys():
+                        if g_name not in app_instance.groups:
+                            app_instance.groups.append(g_name)
+
+            mode = app_instance.state
+            if mode == "CHAT":
+                if global_chat_ref:
+                    data = global_chat_ref.order_by_key().limit_to_last(50).get()
+                    if data and isinstance(data, dict):
+                        for key, val in data.items():
+                            if key not in last_global_keys:
+                                last_global_keys.add(key)
+                                if isinstance(val, dict) and 'text' in val:
+                                    msg_queue.put({
+                                        "type": "global_chat",
+                                        "username": decrypt_str(val.get('username', '')),
+                                        "text": decrypt_str(val.get('text', ''))
+                                    })
+            elif mode == "GROUP_CHAT":
+                current_grp = app_instance.current_group
+                if current_grp != last_group:
+                    last_group_keys.clear()
+                    last_group = current_grp
+
+                if groups_ref and current_grp:
+                    data = groups_ref.child(current_grp).child("messages").order_by_key().limit_to_last(50).get()
+                    if data and isinstance(data, dict):
+                        for key, val in data.items():
+                            if key not in last_group_keys:
+                                last_group_keys.add(key)
+                                if isinstance(val, dict) and 'text' in val:
+                                    msg_queue.put({
+                                        "type": "group_chat",
+                                        "group": current_grp,
+                                        "username": decrypt_str(val.get('username', '')),
+                                        "text": decrypt_str(val.get('text', ''))
+                                    })
         except Exception:
             pass
-        time.sleep(0.4)
+        time.sleep(0.3)
 
-def start_firebase_stream():
-    threading.Thread(target=background_fetch_loop, daemon=True).start()
+def start_firebase_stream(app_instance):
+    threading.Thread(target=background_fetch_loop, args=(app_instance,), daemon=True).start()
+
+
+# ==========================================
+# STREAM ANIMATION CONTROLLER
+# ==========================================
+class MessageStreamer:
+    """Управляет посимвольной анимацией появления новых сообщений"""
+    def __init__(self):
+        self.target_text = ""
+        self.current_text = ""
+        self.char_index = 0
+        self.last_tick = time.time()
+        self.speed = 0.015
+
+    def start_stream(self, full_text):
+        self.target_text = full_text
+        self.current_text = ""
+        self.char_index = 0
+        self.last_tick = time.time()
+
+    def update(self):
+        if self.char_index < len(self.target_text):
+            now = time.time()
+            if now - self.last_tick >= self.speed:
+                step = random.randint(1, 2)
+                self.char_index = min(len(self.target_text), self.char_index + step)
+                self.current_text = self.target_text[:self.char_index]
+                self.last_tick = now
+                return True
+        return False
+
+    def is_animating(self):
+        return self.char_index < len(self.target_text)
 
 
 # ==========================================
@@ -121,19 +225,24 @@ DEFAULT_THEME_DATA = {
 
 class EchoApp:
     def __init__(self):
-        self.user_id = generate_unique_id()
         self.username = "User"
-        self.current_group = "Global"
+        self.load_config_username()
+        self.user_id = register_or_get_user(self.username)
+        
+        self.current_group = ""
         self.current_theme_name = "default"
         self.active_theme = DEFAULT_THEME_DATA["default"]
-        self.messages = []
-        self.groups = ["Global"]
+        
+        self.global_messages = []
+        self.group_messages = {}
+        
+        self.groups = []
         self.group_passwords = {}
         self.friends = []
         self.active_friend = None
         self.dm_messages = {}
 
-        self.menu_items = ["Chat", "Groups", "Friends", "Profile", "Themes", "Exit"]
+        self.menu_items = ["Chat", "Groups", "Friends", "Profile", "Themes", "Credits", "Exit"]
         self.selected_menu = 0
         self.selected_group_idx = 0
         self.selected_friend_idx = 0
@@ -144,7 +253,6 @@ class EchoApp:
         
         self.palette_page = 0
         
-        # Переменные для создания темы
         self.new_theme_name = ""
         self.new_theme_primary = 6
         self.new_theme_secondary = 5
@@ -163,7 +271,6 @@ class EchoApp:
         self.ensure_dirs()
         self.init_default_themes_files()
         self.load_config()
-        self.clean_junk_groups()
         self.load_themes()
 
     def ensure_dirs(self):
@@ -179,14 +286,14 @@ class EchoApp:
                 with open(filepath, "w", encoding="utf-8") as f:
                     json.dump(data, f, ensure_ascii=False, indent=4)
 
-    def clean_junk_groups(self):
-        junk = ["Random", "VIP", "Developers"]
-        self.groups = [g for g in self.groups if g not in junk]
-        if "Global" not in self.groups:
-            self.groups.insert(0, "Global")
-        for j in junk:
-            self.group_passwords.pop(j, None)
-        self.save_config()
+    def load_config_username(self):
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    self.username = cfg.get("username", "User")
+            except Exception:
+                pass
 
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
@@ -195,28 +302,32 @@ class EchoApp:
                     cfg = json.load(f)
                     self.username = cfg.get("username", self.username)
                     self.current_theme_name = cfg.get("theme", self.current_theme_name)
-                    self.groups = cfg.get("groups", ["Global"])
-                    self.group_passwords = cfg.get("group_passwords", {})
+                    self.groups = cfg.get("groups", [])
+                    enc_passwords = cfg.get("group_passwords_enc", {})
+                    self.group_passwords = {k: decrypt_str(v) for k, v in enc_passwords.items()}
                     self.friends = cfg.get("friends", self.friends)
             except Exception:
                 pass
 
     def save_config(self):
+        enc_passwords = {k: encrypt_str(v) for k, v in self.group_passwords.items()}
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump({
                 "username": self.username,
                 "theme": self.current_theme_name,
                 "groups": self.groups,
-                "group_passwords": self.group_passwords,
+                "group_passwords_enc": enc_passwords,
                 "friends": self.friends
             }, f, ensure_ascii=False, indent=4)
+        register_or_get_user(self.username)
 
     def load_dm(self, friend_id):
         filepath = os.path.join(FRIENDS_DIR, f"{friend_id}.json")
         if os.path.exists(filepath):
             try:
                 with open(filepath, "r", encoding="utf-8") as f:
-                    self.dm_messages[friend_id] = json.load(f)
+                    encrypted_data = json.load(f)
+                    self.dm_messages[friend_id] = [decrypt_str(msg) for msg in encrypted_data]
             except Exception:
                 self.dm_messages[friend_id] = []
         else:
@@ -224,8 +335,9 @@ class EchoApp:
 
     def save_dm(self, friend_id):
         filepath = os.path.join(FRIENDS_DIR, f"{friend_id}.json")
+        encrypted_data = [encrypt_str(msg) for msg in self.dm_messages.get(friend_id, [])]
         with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(self.dm_messages.get(friend_id, []), f, ensure_ascii=False, indent=4)
+            json.dump(encrypted_data, f, ensure_ascii=False, indent=4)
 
     def load_themes(self):
         files = []
@@ -267,13 +379,33 @@ class EchoApp:
             for idx, color_code in enumerate(grad):
                 curses.init_pair(10 + idx, color_code, -1)
 
-            # Инициализируем пары для 256 цветов палитры (диапазон пара 20..275)
             max_colors = min(curses.COLORS, 256)
             for c in range(max_colors):
                 try:
                     curses.init_pair(20 + c, curses.COLOR_BLACK, c)
                 except Exception:
                     pass
+
+    def transition_animation(self):
+        """Плавная волновая анимация перевода страниц сверху вниз (Top-to-Bottom Wave)"""
+        try:
+            height, width = self.stdscr.getmaxyx()
+            fill_char = "░"
+            for y in range(height):
+                try:
+                    self.stdscr.addstr(y, 0, fill_char * (width - 1), curses.color_pair(2))
+                    self.stdscr.refresh()
+                    time.sleep(0.005)
+                except curses.error:
+                    pass
+            time.sleep(0.02)
+        except Exception:
+            pass
+
+    def change_state(self, new_state, curs_state=0):
+        self.transition_animation()
+        self.state = new_state
+        curses.curs_set(curs_state)
 
     def draw_logo(self, stdscr):
         grad = self.active_theme.get("gradient", [self.active_theme.get("primary", 6)])
@@ -292,19 +424,35 @@ class EchoApp:
         self.stdscr.nodelay(True)
         self.init_colors()
 
-        start_firebase_stream()
+        start_firebase_stream(self)
 
         while True:
             while not msg_queue.empty():
                 item = msg_queue.get()
-                if item.get("type") == "chat":
-                    formatted = f"[{item['group']}] {item['username']}: {item['text']}"
-                    self.messages.append(formatted)
+                if item.get("type") == "global_chat":
+                    formatted = f"{item['username']}: {item['text']}"
+                    streamer = MessageStreamer()
+                    streamer.start_stream(formatted)
+                    self.global_messages.append(streamer)
+                elif item.get("type") == "group_chat":
+                    grp = item['group']
+                    if grp not in self.group_messages:
+                        self.group_messages[grp] = []
+                    formatted = f"{item['username']}: {item['text']}"
+                    streamer = MessageStreamer()
+                    streamer.start_stream(formatted)
+                    self.group_messages[grp].append(streamer)
+
+            for s in self.global_messages:
+                s.update()
+            for grp_msgs in self.group_messages.values():
+                for s in grp_msgs:
+                    s.update()
 
             self.draw()
             if not self.handle_input():
                 break
-            time.sleep(0.02)
+            time.sleep(0.015)
 
     def draw(self):
         self.stdscr.erase()
@@ -313,7 +461,9 @@ class EchoApp:
         if self.state == "MENU":
             self.draw_menu(height, width)
         elif self.state == "CHAT":
-            self.draw_chat(height, width)
+            self.draw_global_chat(height, width)
+        elif self.state == "GROUP_CHAT":
+            self.draw_group_chat(height, width)
         elif self.state == "GROUPS":
             self.draw_groups(height, width)
         elif self.state in ("CREATE_GROUP_NAME", "CREATE_GROUP_PASS"):
@@ -334,6 +484,8 @@ class EchoApp:
             self.draw_create_theme_wizard(height, width)
         elif self.state == "PALETTE":
             self.draw_palette(height, width)
+        elif self.state == "CREDITS":
+            self.draw_credits(height, width)
 
         self.stdscr.refresh()
 
@@ -359,21 +511,59 @@ class EchoApp:
             except curses.error:
                 pass
 
-    def draw_chat(self, height, width):
-        header = f"=== ECHO CHAT | Group: {self.current_group} | User: {self.username} ==="
+    def draw_global_chat(self, height, width):
+        self.draw_logo(self.stdscr)
+        logo_offset = len(LOGO) + 1
+        
+        header = f"=== GLOBAL PUBLIC CHAT | User: {self.username} ==="
         try:
-            self.stdscr.addstr(0, 0, header[:width-1], curses.color_pair(1) | curses.A_BOLD)
-            self.stdscr.addstr(1, 0, "-" * (width-1), curses.color_pair(2))
+            self.stdscr.addstr(logo_offset, 0, header[:width-1], curses.color_pair(1) | curses.A_BOLD)
+            self.stdscr.addstr(logo_offset + 1, 0, "-" * (width-1), curses.color_pair(2))
         except curses.error:
             pass
 
-        chat_height = height - 4
+        chat_start_y = logo_offset + 2
+        chat_height = height - chat_start_y - 2
         if chat_height > 0:
-            visible = [m for m in self.messages if m.startswith(f"[{self.current_group}]")]
-            visible = visible[-(chat_height + self.scroll_offset): len(visible) - self.scroll_offset if self.scroll_offset > 0 else None]
-            for idx, msg in enumerate(visible[:chat_height]):
+            visible = self.global_messages[-(chat_height + self.scroll_offset): len(self.global_messages) - self.scroll_offset if self.scroll_offset > 0 else None]
+            for idx, streamer in enumerate(visible[:chat_height]):
+                msg_text = streamer.current_text
+                if streamer.is_animating():
+                    msg_text += "▌"
                 try:
-                    self.stdscr.addstr(2 + idx, 0, msg[:width-1], curses.color_pair(3))
+                    self.stdscr.addstr(chat_start_y + idx, 0, msg_text[:width-1], curses.color_pair(3))
+                except curses.error:
+                    pass
+
+        try:
+            self.stdscr.addstr(height - 2, 0, "-" * (width-1), curses.color_pair(2))
+            prompt = f"[Global] > {self.input_buffer}"
+            self.stdscr.addstr(height - 1, 0, prompt[:width-1], curses.color_pair(1))
+        except curses.error:
+            pass
+
+    def draw_group_chat(self, height, width):
+        self.draw_logo(self.stdscr)
+        logo_offset = len(LOGO) + 1
+        
+        header = f"=== GROUP ROOM: {self.current_group} | User: {self.username} ==="
+        try:
+            self.stdscr.addstr(logo_offset, 0, header[:width-1], curses.color_pair(1) | curses.A_BOLD)
+            self.stdscr.addstr(logo_offset + 1, 0, "-" * (width-1), curses.color_pair(2))
+        except curses.error:
+            pass
+
+        chat_start_y = logo_offset + 2
+        chat_height = height - chat_start_y - 2
+        msgs = self.group_messages.get(self.current_group, [])
+        if chat_height > 0:
+            visible = msgs[-(chat_height + self.scroll_offset): len(msgs) - self.scroll_offset if self.scroll_offset > 0 else None]
+            for idx, streamer in enumerate(visible[:chat_height]):
+                msg_text = streamer.current_text
+                if streamer.is_animating():
+                    msg_text += "▌"
+                try:
+                    self.stdscr.addstr(chat_start_y + idx, 0, msg_text[:width-1], curses.color_pair(3))
                 except curses.error:
                     pass
 
@@ -388,14 +578,17 @@ class EchoApp:
         self.draw_logo(self.stdscr)
         start_y = len(LOGO) + 2
         try:
-            self.stdscr.addstr(start_y, 0, "=== SELECT GROUP ===", curses.color_pair(1) | curses.A_BOLD)
-            self.stdscr.addstr(start_y + 1, 0, "[Press 'C' to Create New Group]", curses.color_pair(2))
+            self.stdscr.addstr(start_y, 0, "=== GROUPS & ROOMS ===", curses.color_pair(1) | curses.A_BOLD)
         except curses.error:
             pass
 
-        for idx, grp in enumerate(self.groups):
-            y = start_y + 3 + idx
-            is_locked = " [LOCKED]" if self.group_passwords.get(grp) else ""
+        items = ["[ + CREATE NEW GROUP ]"] + self.groups
+        for idx, grp in enumerate(items):
+            y = start_y + 2 + idx
+            is_locked = ""
+            if grp != "[ + CREATE NEW GROUP ]" and self.group_passwords.get(grp):
+                is_locked = " [LOCKED]"
+                
             if idx == self.selected_group_idx:
                 attr = curses.color_pair(4) | curses.A_BOLD
                 prefix = " > "
@@ -417,7 +610,7 @@ class EchoApp:
                 self.stdscr.addstr(start_y + 4, 0, "[Enter] Next  |  [Esc] Cancel", curses.color_pair(2))
             elif self.state == "CREATE_GROUP_PASS":
                 self.stdscr.addstr(start_y + 2, 0, f"Group: {self.temp_group_name}", curses.color_pair(3))
-                self.stdscr.addstr(start_y + 3, 0, f"Set Password (leave empty for none): {self.input_buffer}", curses.color_pair(1) | curses.A_BOLD)
+                self.stdscr.addstr(start_y + 3, 0, f"Set Password (leave empty for public): {self.input_buffer}", curses.color_pair(1) | curses.A_BOLD)
                 self.stdscr.addstr(start_y + 5, 0, "[Enter] Save Group  |  [Esc] Cancel", curses.color_pair(2))
         except curses.error:
             pass
@@ -437,28 +630,22 @@ class EchoApp:
         start_y = len(LOGO) + 2
         try:
             self.stdscr.addstr(start_y, 0, f"=== FRIENDS | YOUR ID: {self.user_id} ===", curses.color_pair(1) | curses.A_BOLD)
-            self.stdscr.addstr(start_y + 1, 0, "[Press 'A' to Add Friend by ID]", curses.color_pair(2))
         except curses.error:
             pass
 
-        if not self.friends:
+        items = ["[ + ADD FRIEND BY ID ]"] + self.friends
+        for idx, item in enumerate(items):
+            y = start_y + 2 + idx
+            if idx == self.selected_friend_idx:
+                attr = curses.color_pair(4) | curses.A_BOLD
+                prefix = " > "
+            else:
+                attr = curses.color_pair(3)
+                prefix = "   "
             try:
-                self.stdscr.addstr(start_y + 3, 3, "No friends added yet.", curses.color_pair(3))
+                self.stdscr.addstr(y, 0, f"{prefix}{item}", attr)
             except curses.error:
                 pass
-        else:
-            for idx, fr in enumerate(self.friends):
-                y = start_y + 3 + idx
-                if idx == self.selected_friend_idx:
-                    attr = curses.color_pair(4) | curses.A_BOLD
-                    prefix = " > "
-                else:
-                    attr = curses.color_pair(3)
-                    prefix = "   "
-                try:
-                    self.stdscr.addstr(y, 0, f"{prefix}{fr}", attr)
-                except curses.error:
-                    pass
 
     def draw_add_friend(self, height, width):
         self.draw_logo(self.stdscr)
@@ -471,20 +658,24 @@ class EchoApp:
             pass
 
     def draw_dm_chat(self, height, width):
-        header = f"=== Friend ID: {self.active_friend} | Local Save Active ==="
+        self.draw_logo(self.stdscr)
+        logo_offset = len(LOGO) + 1
+        
+        header = f"=== Friend ID: {self.active_friend} | Encrypted DM ==="
         try:
-            self.stdscr.addstr(0, 0, header[:width-1], curses.color_pair(1) | curses.A_BOLD)
-            self.stdscr.addstr(1, 0, "-" * (width-1), curses.color_pair(2))
+            self.stdscr.addstr(logo_offset, 0, header[:width-1], curses.color_pair(1) | curses.A_BOLD)
+            self.stdscr.addstr(logo_offset + 1, 0, "-" * (width-1), curses.color_pair(2))
         except curses.error:
             pass
 
-        chat_height = height - 4
+        chat_start_y = logo_offset + 2
+        chat_height = height - chat_start_y - 2
         msgs = self.dm_messages.get(self.active_friend, [])
         if chat_height > 0:
             visible = msgs[-(chat_height + self.scroll_offset): len(msgs) - self.scroll_offset if self.scroll_offset > 0 else None]
             for idx, msg in enumerate(visible[:chat_height]):
                 try:
-                    self.stdscr.addstr(2 + idx, 0, msg[:width-1], curses.color_pair(3))
+                    self.stdscr.addstr(chat_start_y + idx, 0, msg[:width-1], curses.color_pair(3))
                 except curses.error:
                     pass
 
@@ -552,7 +743,7 @@ class EchoApp:
             elif self.create_theme_step == 3:
                 self.stdscr.addstr(start_y + 2, 0, f"Text Color ID (0-255): {self.input_buffer}", curses.color_pair(3))
             elif self.create_theme_step == 4:
-                self.stdscr.addstr(start_y + 2, 0, f"Gradient Color IDs (space-separated, e.g. '5 1 6'): {self.input_buffer}", curses.color_pair(3))
+                self.stdscr.addstr(start_y + 2, 0, f"Gradient Color IDs (space-separated): {self.input_buffer}", curses.color_pair(3))
                 self.stdscr.addstr(start_y + 4, 0, "[Enter] Finish & Save Theme", curses.color_pair(2))
         except curses.error:
             pass
@@ -562,7 +753,7 @@ class EchoApp:
         start_y = len(LOGO) + 2
         
         total_colors = min(curses.COLORS, 256)
-        per_page = 16
+        per_page = 48
         total_pages = math.ceil(total_colors / per_page) or 1
         
         start_c = self.palette_page * per_page
@@ -573,13 +764,32 @@ class EchoApp:
             self.stdscr.addstr(start_y + 1, 0, "[Left/Right] Page  |  [Esc] Back", curses.color_pair(2))
 
             for idx, c in enumerate(range(start_c, end_c)):
-                y = start_y + 3 + idx
+                col = idx // 16
+                row = idx % 16
+                
+                x_pos = col * 25
+                y_pos = start_y + 3 + row
+                
                 sample = "  "
                 attr = curses.color_pair(20 + c)
-                self.stdscr.addstr(y, 0, f" Color ID {c:3d}: ", curses.color_pair(3))
-                self.stdscr.addstr(y, 16, "[", curses.color_pair(3))
-                self.stdscr.addstr(y, 17, sample, attr)
-                self.stdscr.addstr(y, 19, "]", curses.color_pair(3))
+                self.stdscr.addstr(y_pos, x_pos, f"{c:3d}:", curses.color_pair(3))
+                self.stdscr.addstr(y_pos, x_pos + 5, "[", curses.color_pair(3))
+                self.stdscr.addstr(y_pos, x_pos + 6, sample, attr)
+                self.stdscr.addstr(y_pos, x_pos + 8, "]", curses.color_pair(3))
+        except curses.error:
+            pass
+
+    def draw_credits(self, height, width):
+        self.draw_logo(self.stdscr)
+        start_y = len(LOGO) + 2
+        try:
+            self.stdscr.addstr(start_y, 0, "=== CREDITS ===", curses.color_pair(1) | curses.A_BOLD)
+            self.stdscr.addstr(start_y + 2, 4, "echo chat by", curses.color_pair(3))
+            self.stdscr.addstr(start_y + 3, 4, "gemini ai", curses.color_pair(1) | curses.A_BOLD)
+            self.stdscr.addstr(start_y + 4, 4, "xrl-dev", curses.color_pair(2) | curses.A_BOLD)
+            
+            self.stdscr.addstr(start_y + 6, 4, "version 2.0.5", curses.color_pair(3))
+            self.stdscr.addstr(start_y + 8, 0, "[Esc] Back to Menu", curses.color_pair(2))
         except curses.error:
             pass
 
@@ -593,23 +803,18 @@ class EchoApp:
             return True
 
         if key == 27:  # ESC
-            if self.state in ("CHAT", "GROUPS", "FRIENDS", "PROFILE", "THEMES"):
-                self.state = "MENU"
-                curses.curs_set(0)
+            if self.state in ("CHAT", "GROUP_CHAT", "GROUPS", "FRIENDS", "PROFILE", "THEMES", "CREDITS"):
+                self.change_state("MENU", 0)
             elif self.state in ("PALETTE", "CREATE_THEME_WIZARD"):
-                self.state = "THEMES"
-                curses.curs_set(0)
+                self.change_state("THEMES", 0)
             elif self.state in ("CREATE_GROUP_NAME", "CREATE_GROUP_PASS", "ENTER_GROUP_PASS"):
                 self.input_buffer = ""
-                self.state = "GROUPS"
-                curses.curs_set(0)
+                self.change_state("GROUPS", 0)
             elif self.state == "ADD_FRIEND":
                 self.input_buffer = ""
-                self.state = "FRIENDS"
-                curses.curs_set(0)
+                self.change_state("FRIENDS", 0)
             elif self.state == "DM_CHAT":
-                self.state = "FRIENDS"
-                curses.curs_set(0)
+                self.change_state("FRIENDS", 0)
             return True
 
         if self.state == "MENU":
@@ -620,40 +825,41 @@ class EchoApp:
             elif key in (10, 13):
                 choice = self.menu_items[self.selected_menu]
                 if choice == "Chat":
-                    self.state = "CHAT"
-                    curses.curs_set(1)
+                    self.change_state("CHAT", 1)
                 elif choice == "Groups":
-                    self.state = "GROUPS"
+                    self.selected_group_idx = 0
+                    self.change_state("GROUPS", 0)
                 elif choice == "Friends":
-                    self.state = "FRIENDS"
+                    self.selected_friend_idx = 0
+                    self.change_state("FRIENDS", 0)
                 elif choice == "Profile":
-                    self.state = "PROFILE"
-                    curses.curs_set(1)
+                    self.change_state("PROFILE", 1)
                 elif choice == "Themes":
-                    self.state = "THEMES"
+                    self.change_state("THEMES", 0)
+                elif choice == "Credits":
+                    self.change_state("CREDITS", 0)
                 elif choice == "Exit":
                     return False
 
         elif self.state == "GROUPS":
-            if key in (ord('c'), ord('C')):
-                self.state = "CREATE_GROUP_NAME"
-                self.input_buffer = ""
-                curses.curs_set(1)
-            elif key in (curses.KEY_UP, ord('k')):
-                self.selected_group_idx = (self.selected_group_idx - 1) % len(self.groups)
+            items = ["[ + CREATE NEW GROUP ]"] + self.groups
+            if key in (curses.KEY_UP, ord('k')):
+                self.selected_group_idx = (self.selected_group_idx - 1) % len(items)
             elif key in (curses.KEY_DOWN, ord('j')):
-                self.selected_group_idx = (self.selected_group_idx + 1) % len(self.groups)
+                self.selected_group_idx = (self.selected_group_idx + 1) % len(items)
             elif key in (10, 13):
-                target = self.groups[self.selected_group_idx]
-                if self.group_passwords.get(target):
-                    self.target_group_join = target
-                    self.state = "ENTER_GROUP_PASS"
+                if self.selected_group_idx == 0:
                     self.input_buffer = ""
-                    curses.curs_set(1)
+                    self.change_state("CREATE_GROUP_NAME", 1)
                 else:
-                    self.current_group = target
-                    self.state = "CHAT"
-                    curses.curs_set(1)
+                    target = self.groups[self.selected_group_idx - 1]
+                    if self.group_passwords.get(target):
+                        self.target_group_join = target
+                        self.input_buffer = ""
+                        self.change_state("ENTER_GROUP_PASS", 1)
+                    else:
+                        self.current_group = target
+                        self.change_state("GROUP_CHAT", 1)
 
         elif self.state == "CREATE_GROUP_NAME":
             if key in (10, 13):
@@ -661,7 +867,7 @@ class EchoApp:
                 if name:
                     self.temp_group_name = name
                     self.input_buffer = ""
-                    self.state = "CREATE_GROUP_PASS"
+                    self.change_state("CREATE_GROUP_PASS", 1)
             elif key in (curses.KEY_BACKSPACE, 127, 8):
                 self.input_buffer = self.input_buffer[:-1]
             elif 32 <= key <= 126:
@@ -677,8 +883,7 @@ class EchoApp:
                 self.current_group = self.temp_group_name
                 self.save_config()
                 self.input_buffer = ""
-                self.state = "CHAT"
-                curses.curs_set(1)
+                self.change_state("GROUP_CHAT", 1)
             elif key in (curses.KEY_BACKSPACE, 127, 8):
                 self.input_buffer = self.input_buffer[:-1]
             elif 32 <= key <= 126:
@@ -690,8 +895,7 @@ class EchoApp:
                 real_pass = self.group_passwords.get(self.target_group_join, "")
                 if entered_pass == real_pass:
                     self.current_group = self.target_group_join
-                    self.state = "CHAT"
-                    curses.curs_set(1)
+                    self.change_state("GROUP_CHAT", 1)
                 self.input_buffer = ""
             elif key in (curses.KEY_BACKSPACE, 127, 8):
                 self.input_buffer = self.input_buffer[:-1]
@@ -699,20 +903,19 @@ class EchoApp:
                 self.input_buffer += chr(key)
 
         elif self.state == "FRIENDS":
-            if key in (ord('a'), ord('A')):
-                self.state = "ADD_FRIEND"
-                self.input_buffer = ""
-                curses.curs_set(1)
-            elif self.friends:
-                if key in (curses.KEY_UP, ord('k')):
-                    self.selected_friend_idx = (self.selected_friend_idx - 1) % len(self.friends)
-                elif key in (curses.KEY_DOWN, ord('j')):
-                    self.selected_friend_idx = (self.selected_friend_idx + 1) % len(self.friends)
-                elif key in (10, 13):
-                    self.active_friend = self.friends[self.selected_friend_idx]
+            items = ["[ + ADD FRIEND BY ID ]"] + self.friends
+            if key in (curses.KEY_UP, ord('k')):
+                self.selected_friend_idx = (self.selected_friend_idx - 1) % len(items)
+            elif key in (curses.KEY_DOWN, ord('j')):
+                self.selected_friend_idx = (self.selected_friend_idx + 1) % len(items)
+            elif key in (10, 13):
+                if self.selected_friend_idx == 0:
+                    self.input_buffer = ""
+                    self.change_state("ADD_FRIEND", 1)
+                else:
+                    self.active_friend = self.friends[self.selected_friend_idx - 1]
                     self.load_dm(self.active_friend)
-                    self.state = "DM_CHAT"
-                    curses.curs_set(1)
+                    self.change_state("DM_CHAT", 1)
 
         elif self.state == "ADD_FRIEND":
             if key in (10, 13):
@@ -721,8 +924,7 @@ class EchoApp:
                     self.friends.append(friend_id)
                     self.save_config()
                 self.input_buffer = ""
-                self.state = "FRIENDS"
-                curses.curs_set(0)
+                self.change_state("FRIENDS", 0)
             elif key in (curses.KEY_BACKSPACE, 127, 8):
                 self.input_buffer = self.input_buffer[:-1]
             elif 32 <= key <= 126:
@@ -764,19 +966,18 @@ class EchoApp:
             elif key in (10, 13):
                 selected = self.theme_items[self.selected_theme_idx]
                 if selected == "[ COLOR PALETTE ]":
-                    self.state = "PALETTE"
                     self.palette_page = 0
+                    self.change_state("PALETTE", 0)
                 elif selected == "[ CREATE THEME ]":
-                    self.state = "CREATE_THEME_WIZARD"
                     self.create_theme_step = 0
                     self.input_buffer = ""
-                    curses.curs_set(1)
+                    self.change_state("CREATE_THEME_WIZARD", 1)
                 else:
                     self.current_theme_name = selected
                     self.load_themes()
                     self.init_colors()
                     self.save_config()
-                    self.state = "MENU"
+                    self.change_state("MENU", 0)
 
         elif self.state == "CREATE_THEME_WIZARD":
             if key in (10, 13):
@@ -820,8 +1021,7 @@ class EchoApp:
                     self.init_colors()
                     self.save_config()
                     self.input_buffer = ""
-                    self.state = "MENU"
-                    curses.curs_set(0)
+                    self.change_state("MENU", 0)
             elif key in (curses.KEY_BACKSPACE, 127, 8):
                 self.input_buffer = self.input_buffer[:-1]
             elif 32 <= key <= 126:
@@ -829,7 +1029,7 @@ class EchoApp:
 
         elif self.state == "PALETTE":
             total_colors = min(curses.COLORS, 256)
-            total_pages = math.ceil(total_colors / 16) or 1
+            total_pages = math.ceil(total_colors / 48) or 1
             if key == curses.KEY_RIGHT:
                 self.palette_page = (self.palette_page + 1) % total_pages
             elif key == curses.KEY_LEFT:
@@ -841,8 +1041,7 @@ class EchoApp:
                     self.username = self.input_buffer.strip()
                     self.save_config()
                 self.input_buffer = ""
-                self.state = "MENU"
-                curses.curs_set(0)
+                self.change_state("MENU", 0)
             elif key in (curses.KEY_BACKSPACE, 127, 8):
                 self.input_buffer = self.input_buffer[:-1]
             elif 32 <= key <= 126:
@@ -853,7 +1052,28 @@ class EchoApp:
                 text = self.input_buffer.strip()
                 if text:
                     threading.Thread(
-                        target=async_send_message,
+                        target=async_send_global_message,
+                        args=(self.username, text),
+                        daemon=True
+                    ).start()
+                    self.input_buffer = ""
+            elif key in (curses.KEY_BACKSPACE, 127, 8):
+                self.input_buffer = self.input_buffer[:-1]
+            elif key == curses.KEY_UP:
+                if self.scroll_offset < len(self.global_messages) - 1:
+                    self.scroll_offset += 1
+            elif key == curses.KEY_DOWN:
+                if self.scroll_offset > 0:
+                    self.scroll_offset -= 1
+            elif 32 <= key <= 126:
+                self.input_buffer += chr(key)
+
+        elif self.state == "GROUP_CHAT":
+            if key in (10, 13):
+                text = self.input_buffer.strip()
+                if text:
+                    threading.Thread(
+                        target=async_send_group_message,
                         args=(self.username, text, self.current_group),
                         daemon=True
                     ).start()
@@ -861,7 +1081,8 @@ class EchoApp:
             elif key in (curses.KEY_BACKSPACE, 127, 8):
                 self.input_buffer = self.input_buffer[:-1]
             elif key == curses.KEY_UP:
-                if self.scroll_offset < len(self.messages) - 1:
+                msgs = self.group_messages.get(self.current_group, [])
+                if self.scroll_offset < len(msgs) - 1:
                     self.scroll_offset += 1
             elif key == curses.KEY_DOWN:
                 if self.scroll_offset > 0:
